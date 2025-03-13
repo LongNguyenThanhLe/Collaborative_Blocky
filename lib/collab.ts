@@ -340,7 +340,10 @@ export function setupBlocklySync(workspace: any, ydoc: Y.Doc) {
         
         // Get the latest XML state
         const xmlText = sharedBlocks.get('workspace');
-        if (!xmlText) return;
+        if (!xmlText || typeof xmlText !== 'string') {
+          console.warn('No valid workspace XML found in shared state');
+          return;
+        }
         
         console.log('Applying shared state to workspace');
         
