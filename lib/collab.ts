@@ -240,11 +240,136 @@ export function setupBlocklySync(workspace: any, ydoc: Y.Doc) {
     let currentlyDraggedBlock = null;
     // Queue for delayed syncs
     let pendingSync = false;
+    // Flag to indicate we've received initial state
+    let receivedInitialState = false;
+    
+    // Function to immediately update the workspace from shared state
+    const updateWorkspaceFromShared = (force = false) => {
+      if (applyingChanges) return;
+      
+      // Get the latest XML state
+      const xmlText = sharedBlocks.get('workspace');
+      
+      if (xmlText) {
+        try {
+          // Set flag to prevent our change listener from triggering
+          applyingChanges = true;
+          
+          // Remove listener temporarily
+          workspace.removeChangeListener(changeListener);
+          
+          // Use our initialized handler
+          if (!workspace.BLOCKLY_XML_HANDLER_INITIALIZED) {
+            initializeXmlHandler(workspace);
+          }
+          const blocklyXml = workspace.BLOCKLY_XML_HANDLER;
+          
+          // Save selected blocks to restore after update
+          const selectedBlocksIds = workspace.getAllBlocks ? 
+            workspace.getAllBlocks().filter((block: any) => block.isSelected()).map((block: any) => block.id) : 
+            [];
+          
+          // Clear workspace and load new state to ensure consistent positioning
+          workspace.clear();
+          const xmlDom = blocklyXml.textToDom(xmlText);
+          blocklyXml.domToWorkspace(xmlDom, workspace);
+          
+          // Restore selection if possible
+          selectedBlocksIds.forEach((id: string) => {
+            const block = workspace.getBlockById(id);
+            if (block) block.select();
+          });
+          
+          // Re-add the listener
+          workspace.addChangeListener(changeListener);
+          
+          // Reset flag
+          applyingChanges = false;
+          
+          // Mark that we've received initial state
+          receivedInitialState = true;
+          
+          console.log('Workspace updated from shared state');
+        } catch (error) {
+          console.error('Error applying remote changes:', error);
+          applyingChanges = false;
+          workspace.addChangeListener(changeListener);
+        }
+      }
+    };
+    
+    // Function to initialize the Blockly XML handler
+    const initializeXmlHandler = (ws: any) => {
+      ws.BLOCKLY_XML_HANDLER = {
+        workspaceToDom: function(workspace: any) {
+          // Try multiple approaches to find the right function
+          if (workspace.constructor?.prototype?.constructor?.Xml?.workspaceToDom) {
+            return workspace.constructor.prototype.constructor.Xml.workspaceToDom(workspace);
+          }
+          // Fallback to global Blockly namespace
+          if (Blockly?.Xml?.workspaceToDom) {
+            return Blockly.Xml.workspaceToDom(workspace);
+          }
+          throw new Error("Could not find Blockly.Xml.workspaceToDom");
+        },
+        domToText: function(dom: any) {
+          if (workspace.constructor?.prototype?.constructor?.Xml?.domToText) {
+            return workspace.constructor.prototype.constructor.Xml.domToText(dom);
+          }
+          // Fallback to global Blockly namespace
+          if (Blockly?.Xml?.domToText) {
+            return Blockly.Xml.domToText(dom);
+          }
+          throw new Error("Could not find Blockly.Xml.domToText");
+        },
+        textToDom: function(text: string) {
+          if (workspace.constructor?.prototype?.constructor?.Xml?.textToDom) {
+            return workspace.constructor.prototype.constructor.Xml.textToDom(text);
+          }
+          // Fallback to global Blockly namespace
+          if (Blockly?.Xml?.textToDom) {
+            return Blockly.Xml.textToDom(text);
+          }
+          throw new Error("Could not find Blockly.Xml.textToDom");
+        },
+        domToWorkspace: function(dom: any, workspace: any) {
+          if (workspace.constructor?.prototype?.constructor?.Xml?.domToWorkspace) {
+            return workspace.constructor.prototype.constructor.Xml.domToWorkspace(dom, workspace);
+          }
+          // Fallback to global Blockly namespace
+          if (Blockly?.Xml?.domToWorkspace) {
+            return Blockly.Xml.domToWorkspace(dom, workspace);
+          }
+          throw new Error("Could not find Blockly.Xml.domToWorkspace");
+        }
+      };
+      ws.BLOCKLY_XML_HANDLER_INITIALIZED = true;
+      return ws.BLOCKLY_XML_HANDLER;
+    };
+    
+    // Initialize XML handler if not already done
+    if (!workspace.BLOCKLY_XML_HANDLER_INITIALIZED) {
+      initializeXmlHandler(workspace);
+    }
     
     // Set up a listener for changes to the Blockly workspace
     const changeListener = (event: any) => {
       // Skip during apply operations
       if (applyingChanges) return;
+      
+      // When workspace is loaded and ready, always send the initial state if none exists
+      if (event.type === Blockly.Events.FINISHED_LOADING && !sharedBlocks.get('workspace')) {
+        try {
+          const blocklyXml = workspace.BLOCKLY_XML_HANDLER;
+          const xmlDom = blocklyXml.workspaceToDom(workspace);
+          const xmlText = blocklyXml.domToText(xmlDom);
+          sharedBlocks.set('workspace', xmlText);
+          console.log('Initial workspace state sent');
+        } catch (err) {
+          console.error('Error sending initial workspace state:', err);
+        }
+        return;
+      }
       
       // Track drag operations and broadcast to other clients
       if (event.type === Blockly.Events.BLOCK_DRAG) {
@@ -286,11 +411,15 @@ export function setupBlocklySync(workspace: any, ydoc: Y.Doc) {
           
           // Immediately synchronize the workspace state after a drag finishes
           try {
-            // Get and send the current workspace state
             const blocklyXml = workspace.BLOCKLY_XML_HANDLER;
             const xmlDom = blocklyXml.workspaceToDom(workspace);
             const xmlText = blocklyXml.domToText(xmlDom);
-            sharedBlocks.set('workspace', xmlText);
+            
+            // Set the shared state with a small delay to ensure it's applied after drag
+            setTimeout(() => {
+              sharedBlocks.set('workspace', xmlText);
+              console.log('Workspace state updated after drag');
+            }, 50);
           } catch (err) {
             console.error('Error synchronizing after drag:', err);
           }
@@ -302,77 +431,17 @@ export function setupBlocklySync(workspace: any, ydoc: Y.Doc) {
       // Don't update shared state during drag operations - defer until drag is complete
       if (isDragging) return;
       
+      // Only sync workspace-changing events
       if (event.type === Blockly.Events.BLOCK_CREATE ||
           event.type === Blockly.Events.BLOCK_DELETE ||
           event.type === Blockly.Events.BLOCK_CHANGE ||
-          event.type === Blockly.Events.BLOCK_MOVE) {
+          event.type === Blockly.Events.BLOCK_MOVE ||
+          event.type === Blockly.Events.VAR_CREATE ||
+          event.type === Blockly.Events.VAR_DELETE ||
+          event.type === Blockly.Events.VAR_RENAME) {
         
         try {
-          // Access the Blockly.Xml namespace properly in production
-          if (!workspace.BLOCKLY_XML_HANDLER_INITIALIZED) {
-            // This ensures we find the XML handler only once and reuse it
-            workspace.BLOCKLY_XML_HANDLER = {
-              workspaceToDom: function(ws: any) {
-                // Get the workspaceToDom function from the workspace's constructor
-                if (ws.constructor && ws.constructor.prototype && ws.constructor.prototype.constructor) {
-                  const blocklyInstance = ws.constructor.prototype.constructor;
-                  if (blocklyInstance.Xml && blocklyInstance.Xml.workspaceToDom) {
-                    return blocklyInstance.Xml.workspaceToDom(ws);
-                  }
-                }
-                // Fallback - try to find Xml in the global Blockly namespace
-                if (Blockly && Blockly.Xml && Blockly.Xml.workspaceToDom) {
-                  return Blockly.Xml.workspaceToDom(ws);
-                }
-                throw new Error("Could not find Blockly.Xml.workspaceToDom");
-              },
-              domToText: function(dom: any) {
-                // Get the domToText function from the workspace's constructor
-                if (workspace.constructor && workspace.constructor.prototype && workspace.constructor.prototype.constructor) {
-                  const blocklyInstance = workspace.constructor.prototype.constructor;
-                  if (blocklyInstance.Xml && blocklyInstance.Xml.domToText) {
-                    return blocklyInstance.Xml.domToText(dom);
-                  }
-                }
-                // Fallback - try to find Xml in the global Blockly namespace
-                if (Blockly && Blockly.Xml && Blockly.Xml.domToText) {
-                  return Blockly.Xml.domToText(dom);
-                }
-                throw new Error("Could not find Blockly.Xml.domToText");
-              },
-              textToDom: function(text: string) {
-                // Get the textToDom function from the workspace's constructor
-                if (workspace.constructor && workspace.constructor.prototype && workspace.constructor.prototype.constructor) {
-                  const blocklyInstance = workspace.constructor.prototype.constructor;
-                  if (blocklyInstance.Xml && blocklyInstance.Xml.textToDom) {
-                    return blocklyInstance.Xml.textToDom(text);
-                  }
-                }
-                // Fallback - try to find Xml in the global Blockly namespace
-                if (Blockly && Blockly.Xml && Blockly.Xml.textToDom) {
-                  return Blockly.Xml.textToDom(text);
-                }
-                throw new Error("Could not find Blockly.Xml.textToDom");
-              },
-              domToWorkspace: function(dom: any, ws: any) {
-                // Get the domToWorkspace function from the workspace's constructor
-                if (ws.constructor && ws.constructor.prototype && ws.constructor.prototype.constructor) {
-                  const blocklyInstance = ws.constructor.prototype.constructor;
-                  if (blocklyInstance.Xml && blocklyInstance.Xml.domToWorkspace) {
-                    return blocklyInstance.Xml.domToWorkspace(dom, ws);
-                  }
-                }
-                // Fallback - try to find Xml in the global Blockly namespace
-                if (Blockly && Blockly.Xml && Blockly.Xml.domToWorkspace) {
-                  return Blockly.Xml.domToWorkspace(dom, ws);
-                }
-                throw new Error("Could not find Blockly.Xml.domToWorkspace");
-              }
-            };
-            workspace.BLOCKLY_XML_HANDLER_INITIALIZED = true;
-          }
-
-          // Use our initialized handler
+          // Use our XML handler
           const blocklyXml = workspace.BLOCKLY_XML_HANDLER;
           
           // Get the current state as XML
@@ -380,6 +449,7 @@ export function setupBlocklySync(workspace: any, ydoc: Y.Doc) {
           const xmlText = blocklyXml.domToText(xmlDom);
           
           // Update the shared state
+          console.log('Updating shared workspace state');
           sharedBlocks.set('workspace', xmlText);
         } catch (err) {
           console.error('Error updating shared blocks:', err);
@@ -387,64 +457,14 @@ export function setupBlocklySync(workspace: any, ydoc: Y.Doc) {
       }
     };
     
+    // Add the change listener to the workspace
     workspace.addChangeListener(changeListener);
     
     // Process pending remote changes when a drag operation is complete
     const processPendingSync = () => {
       if (pendingSync && !isDragging) {
         pendingSync = false;
-        
-        // Get the latest XML state
-        const xmlText = sharedBlocks.get('workspace');
-        
-        if (xmlText) {
-          try {
-            // Set flag to prevent our change listener from triggering
-            applyingChanges = true;
-            
-            // Remove listener temporarily
-            workspace.removeChangeListener(changeListener);
-            
-            // Use our initialized handler
-            const blocklyXml = workspace.BLOCKLY_XML_HANDLER;
-            
-            // Preserve current selected blocks
-            const selectedBlocksIds = workspace.getAllBlocks ? 
-              workspace.getAllBlocks().filter((block: any) => block.isSelected()).map((block: any) => block.id) : 
-              [];
-            
-            // Instead of clearing, merge changes when possible
-            const oldXmlDom = blocklyXml.workspaceToDom(workspace);
-            const newXmlDom = blocklyXml.textToDom(xmlText);
-            
-            // Clear workspace only if necessary (first sync or major change)
-            if (workspace.getAllBlocks().length === 0 || 
-                oldXmlDom.querySelectorAll('block').length !== newXmlDom.querySelectorAll('block').length) {
-              workspace.clear();
-              blocklyXml.domToWorkspace(newXmlDom, workspace);
-            } else {
-              // For minor changes, try to update only what changed
-              workspace.clear();
-              blocklyXml.domToWorkspace(newXmlDom, workspace);
-            }
-            
-            // Restore selection if possible
-            selectedBlocksIds.forEach((id: string) => {
-              const block = workspace.getBlockById(id);
-              if (block) block.select();
-            });
-            
-            // Re-add the listener
-            workspace.addChangeListener(changeListener);
-            
-            // Reset flag
-            applyingChanges = false;
-          } catch (error) {
-            console.error('Error applying remote changes:', error);
-            applyingChanges = false;
-            workspace.addChangeListener(changeListener);
-          }
-        }
+        updateWorkspaceFromShared();
       }
     };
     
@@ -519,6 +539,32 @@ export function setupBlocklySync(workspace: any, ydoc: Y.Doc) {
       });
     });
     
+    // Check for existing shared workspace state on startup
+    const initialWorkspaceState = sharedBlocks.get('workspace');
+    if (initialWorkspaceState) {
+      console.log('Found initial shared workspace state, applying...');
+      // Apply initial state with a short delay to ensure workspace is ready
+      setTimeout(() => {
+        updateWorkspaceFromShared(true);
+      }, 500);
+    } else {
+      // If no shared state exists yet, wait for a moment and then share our current state
+      console.log('No shared workspace state found, will share current state shortly...');
+      setTimeout(() => {
+        if (!sharedBlocks.get('workspace') && workspace.getAllBlocks().length > 0) {
+          try {
+            const blocklyXml = workspace.BLOCKLY_XML_HANDLER;
+            const xmlDom = blocklyXml.workspaceToDom(workspace);
+            const xmlText = blocklyXml.domToText(xmlDom);
+            sharedBlocks.set('workspace', xmlText);
+            console.log('Shared initial workspace state');
+          } catch (err) {
+            console.error('Error sharing initial workspace state:', err);
+          }
+        }
+      }, 1000);
+    }
+    
     // Start checking for pending syncs periodically
     const syncInterval = setInterval(processPendingSync, 500);
     
@@ -530,50 +576,12 @@ export function setupBlocklySync(workspace: any, ydoc: Y.Doc) {
       if (isDragging) {
         // If dragging, mark as pending instead of applying immediately
         pendingSync = true;
+        console.log('Remote changes received during drag, marking as pending');
         return;
       }
       
-      // Get the latest XML state
-      const xmlText = sharedBlocks.get('workspace');
-      
-      if (xmlText) {
-        try {
-          // Set flag to prevent our change listener from triggering
-          applyingChanges = true;
-          
-          // Remove listener temporarily
-          workspace.removeChangeListener(changeListener);
-          
-          // Use our initialized handler 
-          const blocklyXml = workspace.BLOCKLY_XML_HANDLER;
-          
-          // Preserve current selected blocks
-          const selectedBlocksIds = workspace.getAllBlocks ? 
-            workspace.getAllBlocks().filter((block: any) => block.isSelected()).map((block: any) => block.id) : 
-            [];
-          
-          // Clear the workspace and load the new state
-          workspace.clear();
-          const xmlDom = blocklyXml.textToDom(xmlText);
-          blocklyXml.domToWorkspace(xmlDom, workspace);
-          
-          // Restore selection if possible
-          selectedBlocksIds.forEach((id: string) => {
-            const block = workspace.getBlockById(id);
-            if (block) block.select();
-          });
-          
-          // Re-add the listener
-          workspace.addChangeListener(changeListener);
-          
-          // Reset flag
-          applyingChanges = false;
-        } catch (error) {
-          console.error('Error applying remote changes:', error);
-          applyingChanges = false;
-          workspace.addChangeListener(changeListener);
-        }
-      }
+      // Process the change immediately
+      updateWorkspaceFromShared();
     });
     
     // Return cleanup function
