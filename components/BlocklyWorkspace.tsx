@@ -50,8 +50,9 @@ const BlocklyWorkspace: React.FC<BlocklyWorkspaceProps> = ({
         const Blockly = await import('blockly');
         const BlocklyJS = await import('blockly/javascript');
         
-        // Explicitly import Blockly XML utilities
-        const BlocklyXml = await import('blockly/core/xml');
+        // Explicitly import Blockly XML utilities - use correct path
+        // The Xml utility is part of the main Blockly namespace, not a separate module
+        const BlocklyXml = Blockly.Xml;
         
         // Make sure we have all the blocks we need
         await import('blockly/blocks');
