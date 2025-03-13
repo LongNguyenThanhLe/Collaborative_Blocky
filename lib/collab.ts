@@ -237,7 +237,9 @@ export function setupBlocklySync(workspace: any, ydoc: Y.Doc, blocklyApi?: any) 
     const clientId = ydoc.clientID;
     
     // Reference to blockly - prefer passed reference, fall back to extraction
-    let Blockly: any = blocklyApi || null;
+    let Blockly: any = blocklyApi?.blockly || null;
+    // Reference to Blockly XML utilities
+    let BlocklyXml: any = blocklyApi?.xml || null;
     
     if (!Blockly) {
       // Extract Blockly reference from workspace as fallback
@@ -310,20 +312,55 @@ export function setupBlocklySync(workspace: any, ydoc: Y.Doc, blocklyApi?: any) 
         // Clear workspace and load new state
         workspace.clear();
         
-        // Access Blockly.Xml safely
-        let blocklyXml: any;
-        if (Blockly && Blockly.Xml) {
-          blocklyXml = Blockly.Xml;
-        } else if (typeof window !== 'undefined' && (window as any).Blockly && (window as any).Blockly.Xml) {
-          blocklyXml = (window as any).Blockly.Xml;
-        }
+        // Access XML utilities, using explicitly provided ones first
+        const xmlUtilities = {
+          textToDom: (text: string) => {
+            // First try explicit XML utilities
+            if (BlocklyXml && typeof BlocklyXml.textToDom === 'function') {
+              return BlocklyXml.textToDom(text);
+            }
+            
+            // Then try Blockly.Xml
+            if (Blockly && Blockly.Xml && typeof Blockly.Xml.textToDom === 'function') {
+              return Blockly.Xml.textToDom(text);
+            }
+            
+            // Finally try global Blockly
+            if (typeof window !== 'undefined' && 
+                (window as any).Blockly && 
+                (window as any).Blockly.Xml && 
+                typeof (window as any).Blockly.Xml.textToDom === 'function') {
+              return (window as any).Blockly.Xml.textToDom(text);
+            }
+            
+            throw new Error('Could not find textToDom function');
+          },
+          domToWorkspace: (dom: any, ws: any) => {
+            // First try explicit XML utilities
+            if (BlocklyXml && typeof BlocklyXml.domToWorkspace === 'function') {
+              return BlocklyXml.domToWorkspace(dom, ws);
+            }
+            
+            // Then try Blockly.Xml
+            if (Blockly && Blockly.Xml && typeof Blockly.Xml.domToWorkspace === 'function') {
+              return Blockly.Xml.domToWorkspace(dom, ws);
+            }
+            
+            // Finally try global Blockly
+            if (typeof window !== 'undefined' && 
+                (window as any).Blockly && 
+                (window as any).Blockly.Xml && 
+                typeof (window as any).Blockly.Xml.domToWorkspace === 'function') {
+              return (window as any).Blockly.Xml.domToWorkspace(dom, ws);
+            }
+            
+            throw new Error('Could not find domToWorkspace function');
+          }
+        };
         
-        if (!blocklyXml || typeof blocklyXml.textToDom !== 'function') {
-          throw new Error('Could not find textToDom function');
-        }
-        
-        const xmlDom = blocklyXml.textToDom(xmlText);
-        blocklyXml.domToWorkspace(xmlDom, workspace);
+        // Convert text to DOM and apply to workspace
+        const xmlDom = xmlUtilities.textToDom(xmlText);
+        xmlUtilities.domToWorkspace(xmlDom, workspace);
         
         // Re-add listeners
         workspace.addChangeListener(changeListener);
@@ -345,7 +382,7 @@ export function setupBlocklySync(workspace: any, ydoc: Y.Doc, blocklyApi?: any) 
         }
       }
     };
-    
+
     // Function to sync workspace to shared document
     const syncToSharedState = () => {
       try {
@@ -356,23 +393,57 @@ export function setupBlocklySync(workspace: any, ydoc: Y.Doc, blocklyApi?: any) 
         // Set the flag to prevent recursive updates
         applyingChanges = true;
         
-        // Access Blockly.Xml safely
-        let blocklyXml: any;
-        if (Blockly && Blockly.Xml) {
-          blocklyXml = Blockly.Xml;
-        } else if (typeof window !== 'undefined' && (window as any).Blockly && (window as any).Blockly.Xml) {
-          blocklyXml = (window as any).Blockly.Xml;
-        }
-        
-        if (!blocklyXml || typeof blocklyXml.workspaceToDom !== 'function') {
-          throw new Error('Could not find workspaceToDom function');
-        }
+        // Access XML utilities, using explicitly provided ones first
+        const xmlUtilities = {
+          workspaceToDom: (ws: any) => {
+            // First try explicit XML utilities
+            if (BlocklyXml && typeof BlocklyXml.workspaceToDom === 'function') {
+              return BlocklyXml.workspaceToDom(ws);
+            }
+            
+            // Then try Blockly.Xml
+            if (Blockly && Blockly.Xml && typeof Blockly.Xml.workspaceToDom === 'function') {
+              return Blockly.Xml.workspaceToDom(ws);
+            }
+            
+            // Finally try global Blockly
+            if (typeof window !== 'undefined' && 
+                (window as any).Blockly && 
+                (window as any).Blockly.Xml && 
+                typeof (window as any).Blockly.Xml.workspaceToDom === 'function') {
+              return (window as any).Blockly.Xml.workspaceToDom(ws);
+            }
+            
+            throw new Error('Could not find workspaceToDom function');
+          },
+          domToText: (dom: any) => {
+            // First try explicit XML utilities
+            if (BlocklyXml && typeof BlocklyXml.domToText === 'function') {
+              return BlocklyXml.domToText(dom);
+            }
+            
+            // Then try Blockly.Xml
+            if (Blockly && Blockly.Xml && typeof Blockly.Xml.domToText === 'function') {
+              return Blockly.Xml.domToText(dom);
+            }
+            
+            // Finally try global Blockly
+            if (typeof window !== 'undefined' && 
+                (window as any).Blockly && 
+                (window as any).Blockly.Xml && 
+                typeof (window as any).Blockly.Xml.domToText === 'function') {
+              return (window as any).Blockly.Xml.domToText(dom);
+            }
+            
+            throw new Error('Could not find domToText function');
+          }
+        };
         
         // Convert workspace to XML DOM
-        const dom = blocklyXml.workspaceToDom(workspace);
+        const dom = xmlUtilities.workspaceToDom(workspace);
         
         // Convert DOM to text
-        const text = blocklyXml.domToText(dom);
+        const text = xmlUtilities.domToText(dom);
         
         // Update the shared state
         console.log('Updating shared workspace state');

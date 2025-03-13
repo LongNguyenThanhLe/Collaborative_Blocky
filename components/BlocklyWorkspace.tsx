@@ -50,6 +50,9 @@ const BlocklyWorkspace: React.FC<BlocklyWorkspaceProps> = ({
         const Blockly = await import('blockly');
         const BlocklyJS = await import('blockly/javascript');
         
+        // Explicitly import Blockly XML utilities
+        const BlocklyXml = await import('blockly/core/xml');
+        
         // Make sure we have all the blocks we need
         await import('blockly/blocks');
 
@@ -176,8 +179,11 @@ const BlocklyWorkspace: React.FC<BlocklyWorkspaceProps> = ({
           // Initialize collaboration
           const { ydoc, provider, awareness, connected } = await initCollaboration(roomId);
           
-          // Set up Blockly synchronization
-          const cleanup = setupBlocklySync(newWorkspace, ydoc, Blockly);
+          // Set up Blockly synchronization with explicit XML utilities
+          const cleanup = setupBlocklySync(newWorkspace, ydoc, {
+            blockly: Blockly,
+            xml: BlocklyXml
+          });
           
           // Set up cursor tracking if the provider is available
           if (blocklyDiv.current && awareness) {
