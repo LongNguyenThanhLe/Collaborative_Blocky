@@ -1,1 +1,20 @@
-{}
+{
+  "components/BlocklyWorkspace.tsx -> blockly": {
+    "id": "components/BlocklyWorkspace.tsx -> blockly",
+    "files": [
+      "static/chunks/node_modules_blockly_index_js.js"
+    ]
+  },
+  "components/BlocklyWorkspace.tsx -> blockly/blocks": {
+    "id": "components/BlocklyWorkspace.tsx -> blockly/blocks",
+    "files": [
+      "static/chunks/node_modules_blockly_blocks_js.js"
+    ]
+  },
+  "components/BlocklyWorkspace.tsx -> blockly/javascript": {
+    "id": "components/BlocklyWorkspace.tsx -> blockly/javascript",
+    "files": [
+      "static/chunks/node_modules_blockly_javascript_js.js"
+    ]
+  }
+}
