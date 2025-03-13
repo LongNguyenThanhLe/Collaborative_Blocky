@@ -1,15 +1,44 @@
 import React, { useEffect, useRef, useState } from 'react';
 import styles from '../styles/BlocklyWorkspace.module.css';
 import { BlocklyOptions } from 'blockly';
+import { initCollaboration, setupBlocklySync, setupCursorTracking } from '../lib/collab';
 
-const BlocklyWorkspace: React.FC = () => {
+interface BlocklyWorkspaceProps {
+  roomId?: string;
+  onConnectionStatusChange?: (status: string, connected?: boolean) => void;
+  onUserCountChange?: (count: number) => void;
+}
+
+const BlocklyWorkspace: React.FC<BlocklyWorkspaceProps> = ({ 
+  roomId = 'default-room',
+  onConnectionStatusChange,
+  onUserCountChange
+}) => {
   const blocklyDiv = useRef<HTMLDivElement>(null);
   const [workspace, setWorkspace] = useState<any>(null);
   const [generatedCode, setGeneratedCode] = useState<string>('');
   const [showCode, setShowCode] = useState<boolean>(true);
+  const [collaborationStatus, setCollaborationStatus] = useState<string>('Initializing collaboration...');
+  const [userCount, setUserCount] = useState<number>(1);
+  const [isConnected, setIsConnected] = useState<boolean>(false);
+
+  // Update parent component with connection status
+  useEffect(() => {
+    if (onConnectionStatusChange) {
+      onConnectionStatusChange(collaborationStatus, isConnected);
+    }
+  }, [collaborationStatus, isConnected, onConnectionStatusChange]);
+
+  // Update parent component with user count
+  useEffect(() => {
+    if (onUserCountChange) {
+      onUserCountChange(userCount);
+    }
+  }, [userCount, onUserCountChange]);
 
   useEffect(() => {
     let blocklyInstance: any = null;
+    let collaborationCleanup: (() => void) | null = null;
     
     // Only run on client-side
     if (typeof window === 'undefined' || !blocklyDiv.current) return;
@@ -138,8 +167,76 @@ const BlocklyWorkspace: React.FC = () => {
         window.addEventListener('resize', () => {
           setTimeout(applyCustomStyles, 200);
         });
+
+        // Set up collaboration features after workspace is created
+        try {
+          setCollaborationStatus('Connecting to collaboration server...');
+          setIsConnected(false);
+          
+          // Initialize collaboration
+          const { ydoc, provider, awareness, connected } = await initCollaboration(roomId);
+          
+          // Set up Blockly synchronization
+          setupBlocklySync(newWorkspace, ydoc);
+          
+          // Set up cursor tracking if the provider is available
+          if (blocklyDiv.current && awareness) {
+            setupCursorTracking(awareness, blocklyDiv.current);
+          }
+          
+          // Update initial connection status
+          setIsConnected(connected);
+          if (connected) {
+            setCollaborationStatus('Connected to collaboration server');
+          } else if (provider === null) {
+            setCollaborationStatus('Working in offline mode - WebSocket connection failed');
+          } else {
+            setCollaborationStatus('Partially connected - some features may be limited');
+          }
+          
+          // Listen for provider status changes if available
+          if (provider) {
+            provider.on('status', (event: { status: string }) => {
+              console.log('WebSocket connection status:', event.status);
+              
+              if (event.status === 'connected') {
+                setCollaborationStatus('Connected! 🎉 You can now collaborate in real-time.');
+                setIsConnected(true);
+              } else if (event.status === 'connecting') {
+                setCollaborationStatus('Connecting to collaboration server...');
+                setIsConnected(false);
+              } else if (event.status === 'disconnected') {
+                setCollaborationStatus('Disconnected from collaboration server. Trying to reconnect...');
+                setIsConnected(false);
+              } else {
+                setCollaborationStatus(`Connection status: ${event.status}`);
+              }
+            });
+          }
+
+          // Keep track of user counts
+          if (awareness) {
+            awareness.on('change', () => {
+              // Count users with awareness states (indicating active users)
+              const count = Array.from(awareness.getStates().keys()).length;
+              setUserCount(Math.max(1, count)); // Ensure at least 1 user (self)
+            });
+          }
+
+          // Setup cleanup function
+          collaborationCleanup = () => {
+            if (provider) provider.disconnect();
+            if (ydoc) ydoc.destroy();
+          };
+          
+        } catch (error) {
+          console.error('Error setting up collaboration:', error);
+          setCollaborationStatus('Failed to connect to collaboration server. Working in offline mode.');
+          setIsConnected(false);
+        }
       } catch (error) {
         console.error("Error initializing Blockly:", error);
+        setCollaborationStatus('Error initializing Blockly workspace');
       }
     };
 
@@ -150,10 +247,14 @@ const BlocklyWorkspace: React.FC = () => {
       if (blocklyInstance) {
         blocklyInstance.dispose();
       }
+      // Clean up collaboration resources
+      if (collaborationCleanup) {
+        collaborationCleanup();
+      }
       // Remove resize listener
       window.removeEventListener('resize', () => {});
     };
-  }, []);
+  }, [roomId]);
 
   const clearWorkspace = () => {
     if (workspace) {
@@ -172,7 +273,6 @@ const BlocklyWorkspace: React.FC = () => {
         {
           kind: 'category',
           name: 'Logic',
-          categorystyle: 'logic_category',
           colour: '#5b80a5',
           contents: [
             { kind: 'block', type: 'controls_if' },
@@ -187,7 +287,6 @@ const BlocklyWorkspace: React.FC = () => {
         {
           kind: 'category',
           name: 'Loops',
-          categorystyle: 'loop_category',
           colour: '#5ba55b',
           contents: [
             { kind: 'block', type: 'controls_repeat_ext' },
@@ -200,7 +299,6 @@ const BlocklyWorkspace: React.FC = () => {
         {
           kind: 'category',
           name: 'Math',
-          categorystyle: 'math_category',
           colour: '#5b67a5',
           contents: [
             { kind: 'block', type: 'math_number' },
@@ -221,7 +319,6 @@ const BlocklyWorkspace: React.FC = () => {
         {
           kind: 'category',
           name: 'Text',
-          categorystyle: 'text_category',
           colour: '#5ba58c',
           contents: [
             { kind: 'block', type: 'text' },
@@ -241,7 +338,6 @@ const BlocklyWorkspace: React.FC = () => {
         {
           kind: 'category',
           name: 'Lists',
-          categorystyle: 'list_category',
           colour: '#745ba5',
           contents: [
             { kind: 'block', type: 'lists_create_with' },
@@ -260,14 +356,12 @@ const BlocklyWorkspace: React.FC = () => {
         {
           kind: 'category',
           name: 'Variables',
-          categorystyle: 'variable_category',
           colour: '#a55b80',
           custom: 'VARIABLE',
         },
         {
           kind: 'category',
           name: 'Functions',
-          categorystyle: 'procedure_category',
           colour: '#995ba5',
           custom: 'PROCEDURE',
         },
@@ -277,36 +371,29 @@ const BlocklyWorkspace: React.FC = () => {
 
   return (
     <div className={styles.blocklyContainer}>
-      <div className={styles.actionButtons}>
-        <button 
-          className={styles.actionButton} 
-          onClick={clearWorkspace}
-          title="Clear Workspace"
-        >
-          <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M3 6h18"></path>
-            <path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"></path>
-            <path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"></path>
-          </svg>
-          <span>Clear</span>
+      <div className={styles.toolbar}>
+        <button className={styles.toolbarButton} onClick={clearWorkspace}>
+          Clear Workspace
         </button>
-        <button 
-          className={styles.actionButton} 
-          onClick={toggleCodeVisibility}
-          title={showCode ? "Hide Code" : "Show Code"}
-        >
-          <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <polyline points="16 18 22 12 16 6"></polyline>
-            <polyline points="8 6 2 12 8 18"></polyline>
-          </svg>
-          <span>{showCode ? "Hide Code" : "Show Code"}</span>
+        <button className={styles.toolbarButton} onClick={toggleCodeVisibility}>
+          {showCode ? 'Hide' : 'Show'} Code
         </button>
+        <div className={styles.collaborationStatus}>
+          {collaborationStatus} {userCount > 1 ? `👥 ${userCount} users online` : ''}
+        </div>
       </div>
-      <div ref={blocklyDiv} className={styles.blocklyDiv} />
+      
+      <div className={styles.workspaceContainer}>
+        <div
+          className={styles.blocklyDiv}
+          ref={blocklyDiv}
+        />
+      </div>
+      
       {showCode && (
         <div className={styles.codeOutput}>
-          <h3>Generated Code:</h3>
-          <pre className={styles.codeBlock}>
+          <h3>Generated JavaScript:</h3>
+          <pre>
             <code>{generatedCode || '// No code generated yet'}</code>
           </pre>
         </div>
