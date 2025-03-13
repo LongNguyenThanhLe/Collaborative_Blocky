@@ -3,7 +3,9 @@ import { Awareness } from 'y-protocols/awareness';
 import { WebsocketProvider } from 'y-websocket';
 import { doc, getDoc, setDoc, onSnapshot, updateDoc, collection } from "firebase/firestore";
 import { db } from './firebase';
-import * as Blockly from 'blockly';
+// These imports are dynamically loaded at runtime
+// We're just declaring the types here for TypeScript
+declare const Blockly: any;
 
 // Unique color generator for users
 function getRandomColor() {
@@ -252,8 +254,72 @@ export function setupBlocklySync(workspace: any, ydoc: Y.Doc) {
           event.type === Blockly.Events.BLOCK_MOVE) {
         
         try {
-          // Using any type assertion to bypass TypeScript errors
-          const blocklyXml = (Blockly as any).Xml;
+          // Access the Blockly.Xml namespace properly in production
+          if (!workspace.BLOCKLY_XML_HANDLER_INITIALIZED) {
+            // This ensures we find the XML handler only once and reuse it
+            workspace.BLOCKLY_XML_HANDLER = {
+              workspaceToDom: function(ws: any) {
+                // Get the workspaceToDom function from the workspace's constructor
+                if (ws.constructor && ws.constructor.prototype && ws.constructor.prototype.constructor) {
+                  const blocklyInstance = ws.constructor.prototype.constructor;
+                  if (blocklyInstance.Xml && blocklyInstance.Xml.workspaceToDom) {
+                    return blocklyInstance.Xml.workspaceToDom(ws);
+                  }
+                }
+                // Fallback - try to find Xml in the global Blockly namespace
+                if (Blockly && Blockly.Xml && Blockly.Xml.workspaceToDom) {
+                  return Blockly.Xml.workspaceToDom(ws);
+                }
+                throw new Error("Could not find Blockly.Xml.workspaceToDom");
+              },
+              domToText: function(dom: any) {
+                // Get the domToText function from the workspace's constructor
+                if (workspace.constructor && workspace.constructor.prototype && workspace.constructor.prototype.constructor) {
+                  const blocklyInstance = workspace.constructor.prototype.constructor;
+                  if (blocklyInstance.Xml && blocklyInstance.Xml.domToText) {
+                    return blocklyInstance.Xml.domToText(dom);
+                  }
+                }
+                // Fallback - try to find Xml in the global Blockly namespace
+                if (Blockly && Blockly.Xml && Blockly.Xml.domToText) {
+                  return Blockly.Xml.domToText(dom);
+                }
+                throw new Error("Could not find Blockly.Xml.domToText");
+              },
+              textToDom: function(text: string) {
+                // Get the textToDom function from the workspace's constructor
+                if (workspace.constructor && workspace.constructor.prototype && workspace.constructor.prototype.constructor) {
+                  const blocklyInstance = workspace.constructor.prototype.constructor;
+                  if (blocklyInstance.Xml && blocklyInstance.Xml.textToDom) {
+                    return blocklyInstance.Xml.textToDom(text);
+                  }
+                }
+                // Fallback - try to find Xml in the global Blockly namespace
+                if (Blockly && Blockly.Xml && Blockly.Xml.textToDom) {
+                  return Blockly.Xml.textToDom(text);
+                }
+                throw new Error("Could not find Blockly.Xml.textToDom");
+              },
+              domToWorkspace: function(dom: any, ws: any) {
+                // Get the domToWorkspace function from the workspace's constructor
+                if (ws.constructor && ws.constructor.prototype && ws.constructor.prototype.constructor) {
+                  const blocklyInstance = ws.constructor.prototype.constructor;
+                  if (blocklyInstance.Xml && blocklyInstance.Xml.domToWorkspace) {
+                    return blocklyInstance.Xml.domToWorkspace(dom, ws);
+                  }
+                }
+                // Fallback - try to find Xml in the global Blockly namespace
+                if (Blockly && Blockly.Xml && Blockly.Xml.domToWorkspace) {
+                  return Blockly.Xml.domToWorkspace(dom, ws);
+                }
+                throw new Error("Could not find Blockly.Xml.domToWorkspace");
+              }
+            };
+            workspace.BLOCKLY_XML_HANDLER_INITIALIZED = true;
+          }
+
+          // Use our initialized handler
+          const blocklyXml = workspace.BLOCKLY_XML_HANDLER;
           
           // Get the current state as XML
           const xmlDom = blocklyXml.workspaceToDom(workspace);
@@ -285,13 +351,13 @@ export function setupBlocklySync(workspace: any, ydoc: Y.Doc) {
             // Remove listener temporarily
             workspace.removeChangeListener(changeListener);
             
-            // Using any type assertion to bypass TypeScript errors
-            const blocklyXml = (Blockly as any).Xml;
+            // Use our initialized handler
+            const blocklyXml = workspace.BLOCKLY_XML_HANDLER;
             
             // Preserve current selected blocks
-            const selectedBlocksIds = workspace.getBlocksByType('').
-              filter((block: any) => block.isSelected()).
-              map((block: any) => block.id);
+            const selectedBlocksIds = workspace.getAllBlocks ? 
+              workspace.getAllBlocks().filter((block: any) => block.isSelected()).map((block: any) => block.id) : 
+              [];
             
             // Instead of clearing, merge changes when possible
             const oldXmlDom = blocklyXml.workspaceToDom(workspace);
@@ -304,7 +370,6 @@ export function setupBlocklySync(workspace: any, ydoc: Y.Doc) {
               blocklyXml.domToWorkspace(newXmlDom, workspace);
             } else {
               // For minor changes, try to update only what changed
-              // This is a simplification - real implementations might use block IDs to identify changes
               workspace.clear();
               blocklyXml.domToWorkspace(newXmlDom, workspace);
             }
@@ -354,13 +419,13 @@ export function setupBlocklySync(workspace: any, ydoc: Y.Doc) {
           // Remove listener temporarily
           workspace.removeChangeListener(changeListener);
           
-          // Using any type assertion to bypass TypeScript errors
-          const blocklyXml = (Blockly as any).Xml;
+          // Use our initialized handler 
+          const blocklyXml = workspace.BLOCKLY_XML_HANDLER;
           
           // Preserve current selected blocks
-          const selectedBlocksIds = workspace.getBlocksByType('').
-            filter((block: any) => block.isSelected()).
-            map((block: any) => block.id);
+          const selectedBlocksIds = workspace.getAllBlocks ? 
+            workspace.getAllBlocks().filter((block: any) => block.isSelected()).map((block: any) => block.id) : 
+            [];
           
           // Clear the workspace and load the new state
           workspace.clear();
