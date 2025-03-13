@@ -45,6 +45,7 @@ export async function initCollaboration(roomId: string): Promise<CollabSetup> {
     name: userName,
     color: userColor,
     cursor: null,
+    draggingBlock: null, // Track if user is dragging a block
   });
 
   let wsProvider: WebsocketProvider | null = null;
@@ -224,13 +225,19 @@ export async function initCollaboration(roomId: string): Promise<CollabSetup> {
 
 export function setupBlocklySync(workspace: any, ydoc: Y.Doc) {
   try {
-    // Get or create the shared blocks map from the document
+    // Get or create the shared maps from the document
     const sharedBlocks = ydoc.getMap('blocks');
+    const sharedDragState = ydoc.getMap('dragState');
+    
+    // Get awareness for this document
+    const awareness = (ydoc as any).awareness || new Awareness(ydoc);
+    const clientId = ydoc.clientID;
     
     // Track if we're currently applying remote changes to avoid loops
     let applyingChanges = false;
     // Track if we're currently dragging a block to avoid interruptions
     let isDragging = false;
+    let currentlyDraggedBlock = null;
     // Queue for delayed syncs
     let pendingSync = false;
     
@@ -239,13 +246,60 @@ export function setupBlocklySync(workspace: any, ydoc: Y.Doc) {
       // Skip during apply operations
       if (applyingChanges) return;
       
-      // Track drag operations
+      // Track drag operations and broadcast to other clients
       if (event.type === Blockly.Events.BLOCK_DRAG) {
         isDragging = event.isStart;
+        
+        if (event.isStart) {
+          // Get the block being dragged and add to awareness
+          const block = workspace.getBlockById(event.blockId);
+          if (block) {
+            currentlyDraggedBlock = event.blockId;
+            
+            // Update our awareness state so others can see we're dragging a block
+            const localState = awareness.getLocalState();
+            if (localState) {
+              awareness.setLocalState({
+                ...localState,
+                draggingBlock: {
+                  id: event.blockId,
+                  type: block.type,
+                  // Include current position so other clients can show a "ghost" block
+                  x: block.getRelativeToSurfaceXY().x,
+                  y: block.getRelativeToSurfaceXY().y
+                }
+              });
+            }
+          }
+        } else {
+          // Drag ended - clear the dragged block from awareness
+          currentlyDraggedBlock = null;
+          
+          // Update awareness
+          const localState = awareness.getLocalState();
+          if (localState) {
+            awareness.setLocalState({
+              ...localState,
+              draggingBlock: null
+            });
+          }
+          
+          // Immediately synchronize the workspace state after a drag finishes
+          try {
+            // Get and send the current workspace state
+            const blocklyXml = workspace.BLOCKLY_XML_HANDLER;
+            const xmlDom = blocklyXml.workspaceToDom(workspace);
+            const xmlText = blocklyXml.domToText(xmlDom);
+            sharedBlocks.set('workspace', xmlText);
+          } catch (err) {
+            console.error('Error synchronizing after drag:', err);
+          }
+        }
+        
         return;
       }
       
-      // Don't sync during drag operations
+      // Don't update shared state during drag operations - defer until drag is complete
       if (isDragging) return;
       
       if (event.type === Blockly.Events.BLOCK_CREATE ||
@@ -394,6 +448,77 @@ export function setupBlocklySync(workspace: any, ydoc: Y.Doc) {
       }
     };
     
+    // Set up display of other users' dragged blocks as "ghosts"
+    const ghostBlocks: { [key: number]: HTMLElement } = {};
+    
+    // Listen to awareness changes to show other users dragging blocks
+    awareness.on('change', () => {
+      const states = awareness.getStates();
+      
+      // Create or update ghost blocks for users who are dragging
+      states.forEach((state: any, id: number) => {
+        // Skip our own state
+        if (id === clientId) return;
+        
+        if (state.draggingBlock) {
+          // Another user is dragging a block - create/update a ghost
+          if (!ghostBlocks[id]) {
+            // Create ghost block element
+            const ghost = document.createElement('div');
+            ghost.className = 'remote-dragged-block';
+            ghost.style.position = 'absolute';
+            ghost.style.padding = '10px';
+            ghost.style.background = state.color || '#cccccc';
+            ghost.style.border = '2px dashed ' + (state.color || '#cccccc');
+            ghost.style.borderRadius = '5px';
+            ghost.style.opacity = '0.6';
+            ghost.style.pointerEvents = 'none';
+            ghost.style.zIndex = '1000';
+            
+            // Add user label
+            const label = document.createElement('div');
+            label.textContent = state.name || 'User';
+            label.style.position = 'absolute';
+            label.style.top = '-20px';
+            label.style.left = '0';
+            label.style.background = state.color || '#cccccc';
+            label.style.color = '#fff';
+            label.style.padding = '2px 5px';
+            label.style.borderRadius = '3px';
+            label.style.fontSize = '12px';
+            
+            // Add block type
+            const blockType = document.createElement('div');
+            blockType.textContent = state.draggingBlock.type || 'Block';
+            
+            ghost.appendChild(label);
+            ghost.appendChild(blockType);
+            document.querySelector('.blocklyDiv')?.appendChild(ghost);
+            ghostBlocks[id] = ghost;
+          }
+          
+          // Update position
+          const ghost = ghostBlocks[id];
+          ghost.style.left = `${state.draggingBlock.x}px`;
+          ghost.style.top = `${state.draggingBlock.y}px`;
+          
+        } else if (ghostBlocks[id]) {
+          // User stopped dragging - remove ghost
+          ghostBlocks[id].remove();
+          delete ghostBlocks[id];
+        }
+      });
+      
+      // Remove ghosts for users no longer in the states
+      Object.keys(ghostBlocks).forEach(idStr => {
+        const id = parseInt(idStr);
+        if (!states.has(id)) {
+          ghostBlocks[id].remove();
+          delete ghostBlocks[id];
+        }
+      });
+    });
+    
     // Start checking for pending syncs periodically
     const syncInterval = setInterval(processPendingSync, 500);
     
@@ -455,6 +580,9 @@ export function setupBlocklySync(workspace: any, ydoc: Y.Doc) {
     return () => {
       workspace.removeChangeListener(changeListener);
       clearInterval(syncInterval);
+      
+      // Clean up ghost blocks
+      Object.values(ghostBlocks).forEach(ghost => ghost.remove());
     };
   } catch (err) {
     console.error('Error setting up Blockly sync:', err);
@@ -475,10 +603,31 @@ export function setupCursorTracking(awareness: Awareness, element: HTMLElement) 
       const x = e.clientX - rect.left;
       const y = e.clientY - rect.top;
       
+      // Make sure we don't overwrite the draggingBlock state
       awareness.setLocalState({
         ...localState,
         cursor: { x, y }
       });
+      
+      // If user is dragging a block, update its position in the awareness
+      if (localState.draggingBlock) {
+        const workspace = Blockly.getMainWorkspace();
+        if (workspace) {
+          const block = workspace.getBlockById(localState.draggingBlock.id);
+          if (block) {
+            const xy = block.getRelativeToSurfaceXY();
+            awareness.setLocalState({
+              ...localState,
+              cursor: { x, y },
+              draggingBlock: {
+                ...localState.draggingBlock,
+                x: xy.x,
+                y: xy.y
+              }
+            });
+          }
+        }
+      }
     }
   });
   
@@ -500,7 +649,7 @@ export function setupCursorTracking(awareness: Awareness, element: HTMLElement) 
     const states = awareness.getStates();
     
     // Create or update cursor for each user
-    states.forEach((state, id) => {
+    states.forEach((state: any, id: number) => {
       // Skip our own cursor
       if (id === clientId) return;
       
@@ -560,4 +709,11 @@ export function setupCursorTracking(awareness: Awareness, element: HTMLElement) 
       }
     });
   });
+  
+  // Return cleanup function
+  return () => {
+    element.removeEventListener('mousemove', () => {});
+    element.removeEventListener('mouseleave', () => {});
+    Object.values(cursors).forEach(cursor => cursor.remove());
+  };
 }
