@@ -1,8 +1,4 @@
-# 🧩 Collaborative Blockly: Inclusive Coding Spaces for Autistic Youth 🌈
-
-<p align="center">
-  <img src="public/images/blockly-icons/functions.svg" width="100" alt="Collaborative Blockly Logo">
-</p>
+# 🧩 Collaborative Blockly
 
 ## 🚀 Vision
 
@@ -67,10 +63,6 @@ Many autistic youth have natural talents for logical thinking and technology but
 - 💬 Structured communication tools
 - 💾 Project saving and sharing capabilities
 - 🎨 Customizable workspace preferences for sensory needs
-
-## 🤝 How to Contribute
-
-Contributions to make coding more accessible for autistic youth are welcome! Please feel free to submit issues or pull requests.
 
 ## 📚 Resources
 
