@@ -225,8 +225,27 @@ export function setupBlocklySync(workspace: any, ydoc: Y.Doc) {
     // Get or create the shared blocks map from the document
     const sharedBlocks = ydoc.getMap('blocks');
     
+    // Track if we're currently applying remote changes to avoid loops
+    let applyingChanges = false;
+    // Track if we're currently dragging a block to avoid interruptions
+    let isDragging = false;
+    // Queue for delayed syncs
+    let pendingSync = false;
+    
     // Set up a listener for changes to the Blockly workspace
     const changeListener = (event: any) => {
+      // Skip during apply operations
+      if (applyingChanges) return;
+      
+      // Track drag operations
+      if (event.type === Blockly.Events.BLOCK_DRAG) {
+        isDragging = event.isStart;
+        return;
+      }
+      
+      // Don't sync during drag operations
+      if (isDragging) return;
+      
       if (event.type === Blockly.Events.BLOCK_CREATE ||
           event.type === Blockly.Events.BLOCK_DELETE ||
           event.type === Blockly.Events.BLOCK_CHANGE ||
@@ -250,13 +269,79 @@ export function setupBlocklySync(workspace: any, ydoc: Y.Doc) {
     
     workspace.addChangeListener(changeListener);
     
-    // Track if we're currently applying remote changes to avoid loops
-    let applyingChanges = false;
+    // Process pending remote changes when a drag operation is complete
+    const processPendingSync = () => {
+      if (pendingSync && !isDragging) {
+        pendingSync = false;
+        
+        // Get the latest XML state
+        const xmlText = sharedBlocks.get('workspace');
+        
+        if (xmlText) {
+          try {
+            // Set flag to prevent our change listener from triggering
+            applyingChanges = true;
+            
+            // Remove listener temporarily
+            workspace.removeChangeListener(changeListener);
+            
+            // Using any type assertion to bypass TypeScript errors
+            const blocklyXml = (Blockly as any).Xml;
+            
+            // Preserve current selected blocks
+            const selectedBlocksIds = workspace.getBlocksByType('').
+              filter((block: any) => block.isSelected()).
+              map((block: any) => block.id);
+            
+            // Instead of clearing, merge changes when possible
+            const oldXmlDom = blocklyXml.workspaceToDom(workspace);
+            const newXmlDom = blocklyXml.textToDom(xmlText);
+            
+            // Clear workspace only if necessary (first sync or major change)
+            if (workspace.getAllBlocks().length === 0 || 
+                oldXmlDom.querySelectorAll('block').length !== newXmlDom.querySelectorAll('block').length) {
+              workspace.clear();
+              blocklyXml.domToWorkspace(newXmlDom, workspace);
+            } else {
+              // For minor changes, try to update only what changed
+              // This is a simplification - real implementations might use block IDs to identify changes
+              workspace.clear();
+              blocklyXml.domToWorkspace(newXmlDom, workspace);
+            }
+            
+            // Restore selection if possible
+            selectedBlocksIds.forEach((id: string) => {
+              const block = workspace.getBlockById(id);
+              if (block) block.select();
+            });
+            
+            // Re-add the listener
+            workspace.addChangeListener(changeListener);
+            
+            // Reset flag
+            applyingChanges = false;
+          } catch (error) {
+            console.error('Error applying remote changes:', error);
+            applyingChanges = false;
+            workspace.addChangeListener(changeListener);
+          }
+        }
+      }
+    };
+    
+    // Start checking for pending syncs periodically
+    const syncInterval = setInterval(processPendingSync, 500);
     
     // Listen for changes from other clients
     sharedBlocks.observe(() => {
       // Skip if we're already applying changes
       if (applyingChanges) return;
+      
+      if (isDragging) {
+        // If dragging, mark as pending instead of applying immediately
+        pendingSync = true;
+        return;
+      }
       
       // Get the latest XML state
       const xmlText = sharedBlocks.get('workspace');
@@ -272,10 +357,21 @@ export function setupBlocklySync(workspace: any, ydoc: Y.Doc) {
           // Using any type assertion to bypass TypeScript errors
           const blocklyXml = (Blockly as any).Xml;
           
+          // Preserve current selected blocks
+          const selectedBlocksIds = workspace.getBlocksByType('').
+            filter((block: any) => block.isSelected()).
+            map((block: any) => block.id);
+          
           // Clear the workspace and load the new state
           workspace.clear();
           const xmlDom = blocklyXml.textToDom(xmlText);
           blocklyXml.domToWorkspace(xmlDom, workspace);
+          
+          // Restore selection if possible
+          selectedBlocksIds.forEach((id: string) => {
+            const block = workspace.getBlockById(id);
+            if (block) block.select();
+          });
           
           // Re-add the listener
           workspace.addChangeListener(changeListener);
@@ -293,6 +389,7 @@ export function setupBlocklySync(workspace: any, ydoc: Y.Doc) {
     // Return cleanup function
     return () => {
       workspace.removeChangeListener(changeListener);
+      clearInterval(syncInterval);
     };
   } catch (err) {
     console.error('Error setting up Blockly sync:', err);
