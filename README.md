@@ -1,35 +1,38 @@
-# Collaborative Blockly Editor
+# 🧩 Collaborative Blockly: Inclusive Coding Spaces for Autistic Youth 🌈
 
-A collaborative block-based programming environment built with Next.js and Blockly.
+<p align="center">
+  <img src="public/images/blockly-icons/functions.svg" width="100" alt="Collaborative Blockly Logo">
+</p>
 
-## Project Overview
+## 🚀 Vision
 
-This project allows users to create programs using Google's Blockly visual programming editor. It's built with a modern tech stack including:
+We're enhancing Google's Blockly programming environment to create virtual spaces where autistic youth can learn to code and collaborate through **scaffolded, supportive interactions**. Our mission is to make programming collaboration accessible, enjoyable, and growth-oriented for all learning styles.
+
+## 🌟 Project Goals
+
+- 🤝 Develop collaboration skills in **manageable stages**
+- 🛡️ Allow coding in shared projects with **carefully scaffolded separation** of effort
+- 🔄 Ease the coordination skills required for simultaneous code editing 
+- 🌉 Create bridges between independent work and shared projects
+- 💪 Build confidence through structured collaborative experiences
+
+## 🧠 Why This Matters
+
+Many autistic youth have natural talents for logical thinking and technology but may find traditional collaborative environments challenging. Our platform provides:
+
+- 🔍 Clear visual boundaries and ownership of code sections
+- 🕰️ Self-paced integration into collaborative workflows
+- 📊 Reduced cognitive load during social interactions
+- 🎯 Focused learning experiences that build on individual strengths
+
+## 💻 Technology Stack
 
 - **Next.js**: React framework for building the web application
-- **TypeScript**: For type-safe code
-- **Blockly**: Google's library for creating block-based programming interfaces
+- **TypeScript**: For type-safe code development
+- **Blockly**: Google's library for visual block-based programming
+- **Real-time Collaboration**: Custom protocols for scaffolded interaction
 
-## Project Structure
-
-The project is organized in a beginner-friendly way:
-
-- `/pages`: Contains the Next.js pages
-  - `index.tsx`: The main homepage
-  - `_app.tsx`: The main application wrapper
-  - `_document.tsx`: Custom document structure
-  
-- `/components`: Reusable React components
-  - `BlocklyWorkspace.tsx`: The main Blockly editor component
-  
-- `/styles`: CSS files for styling
-  - `globals.css`: Global styles
-  - `Home.module.css`: Styles for the homepage
-  - `BlocklyWorkspace.module.css`: Styles for the Blockly editor
-  
-- `/public`: Static assets (images, favicon, etc.)
-
-## Getting Started
+## 🚦 Getting Started
 
 1. Install dependencies:
    ```
@@ -41,16 +44,39 @@ The project is organized in a beginner-friendly way:
    npm run dev
    ```
 
-3. Open [http://localhost:3000](http://localhost:3000) in your browser to see the application.
+3. Open [http://localhost:3000](http://localhost:3000) in your browser
 
-## Features
+## 🏗️ Project Structure
 
-- Visual block-based programming interface
-- Real-time JavaScript code generation
-- Responsive design for desktop and mobile devices
+- `/pages`: Next.js pages including the main editor view
+- `/components`: React components including our enhanced Blockly workspace
+- `/styles`: CSS modules for styling the application
+- `/public`: Static assets and images
 
-## Next Steps
+## 🌱 Current Features
 
-- Add real-time collaboration features
-- Implement project saving and loading
-- Add custom blocks for specific domains
+- 🧩 Visual block-based programming interface
+- 🔄 Real-time JavaScript code generation
+- 📱 Responsive design for multiple devices
+- 🏁 Basic scaffolding for collaborative interactions
+
+## 🔮 Upcoming Features
+
+- 👥 Multi-user editing with visual boundaries
+- 🚦 Progressive collaboration levels (independent → guided → collaborative)
+- 💬 Structured communication tools
+- 💾 Project saving and sharing capabilities
+- 🎨 Customizable workspace preferences for sensory needs
+
+## 🤝 How to Contribute
+
+Contributions to make coding more accessible for autistic youth are welcome! Please feel free to submit issues or pull requests.
+
+## 📚 Resources
+
+- [Blockly Documentation](https://developers.google.com/blockly/guides/overview)
+- [Next.js Documentation](https://nextjs.org/docs)
+
+## 📝 License
+
+MIT
