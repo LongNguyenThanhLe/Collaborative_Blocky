@@ -227,7 +227,7 @@ export async function initCollaboration(roomId: string): Promise<CollabSetup> {
  * This function sets up synchronization between a Blockly workspace and a shared Yjs document
  * to enable real-time collaboration.
  */
-export function setupBlocklySync(workspace: any, ydoc: Y.Doc) {
+export function setupBlocklySync(workspace: any, ydoc: Y.Doc, blocklyApi?: any) {
   try {
     // Get the shared maps from the document
     const sharedBlocks = ydoc.getMap('blocks');
@@ -236,27 +236,31 @@ export function setupBlocklySync(workspace: any, ydoc: Y.Doc) {
     const awareness = (ydoc as any).awareness || new Awareness(ydoc);
     const clientId = ydoc.clientID;
     
-    // Reference to blockly - will be populated from workspace's methods
-    let Blockly: any = null;
+    // Reference to blockly - prefer passed reference, fall back to extraction
+    let Blockly: any = blocklyApi || null;
+    
+    if (!Blockly) {
+      // Extract Blockly reference from workspace as fallback
+      if (workspace && workspace.constructor && workspace.constructor.prototype && workspace.constructor.prototype.constructor) {
+        Blockly = workspace.constructor.prototype.constructor;
+        console.log('Found Blockly reference from workspace');
+      } else {
+        // Fallback to global Blockly if available
+        if (typeof window !== 'undefined' && (window as any).Blockly) {
+          Blockly = (window as any).Blockly;
+          console.log('Using global Blockly reference');
+        } else {
+          console.error('Could not find Blockly reference');
+        }
+      }
+    } else {
+      console.log('Using provided Blockly API reference');
+    }
     
     // Track if we're currently applying changes to avoid loops
     let applyingChanges = false;
     // Track if we're currently dragging a block to avoid interruptions
     let isDragging = false;
-    
-    // Extract Blockly reference from workspace
-    if (workspace && workspace.constructor && workspace.constructor.prototype && workspace.constructor.prototype.constructor) {
-      Blockly = workspace.constructor.prototype.constructor;
-      console.log('Found Blockly reference from workspace');
-    } else {
-      // Fallback to global Blockly if available
-      if (typeof window !== 'undefined' && (window as any).Blockly) {
-        Blockly = (window as any).Blockly;
-        console.log('Using global Blockly reference');
-      } else {
-        console.error('Could not find Blockly reference');
-      }
-    }
     
     // Store blockly event constants
     const EVENTS: Record<string, string> = {
@@ -282,56 +286,6 @@ export function setupBlocklySync(workspace: any, ydoc: Y.Doc) {
       console.warn('Could not access Blockly.Events, using fallback event names');
     }
     
-    // Use XML utilities available on the workspace
-    const blocklyXml = {
-      workspaceToDom: (ws: any) => {
-        // Try different ways to access workspaceToDom
-        if (Blockly && Blockly.Xml && Blockly.Xml.workspaceToDom) {
-          return Blockly.Xml.workspaceToDom(ws);
-        }
-        throw new Error("Could not find workspaceToDom function");
-      },
-      domToText: (dom: any) => {
-        // Try different ways to access domToText
-        if (Blockly && Blockly.Xml && Blockly.Xml.domToText) {
-          return Blockly.Xml.domToText(dom);
-        }
-        throw new Error("Could not find domToText function");
-      },
-      textToDom: (text: string) => {
-        // Try different ways to access textToDom
-        if (Blockly && Blockly.Xml && Blockly.Xml.textToDom) {
-          return Blockly.Xml.textToDom(text);
-        }
-        throw new Error("Could not find textToDom function");
-      },
-      domToWorkspace: (dom: any, ws: any) => {
-        // Try different ways to access domToWorkspace
-        if (Blockly && Blockly.Xml && Blockly.Xml.domToWorkspace) {
-          return Blockly.Xml.domToWorkspace(dom, ws);
-        }
-        throw new Error("Could not find domToWorkspace function");
-      }
-    };
-    
-    // Function to synchronize the workspace with shared state
-    const syncToSharedState = () => {
-      try {
-        // Skip if we're already applying changes
-        if (applyingChanges) return;
-        
-        // Get the current state as XML
-        const xmlDom = blocklyXml.workspaceToDom(workspace);
-        const xmlText = blocklyXml.domToText(xmlDom);
-        
-        // Update the shared state
-        console.log('Updating shared workspace state');
-        sharedBlocks.set('workspace', xmlText);
-      } catch (err) {
-        console.error('Error updating shared state:', err);
-      }
-    };
-    
     // Function to apply shared state to the workspace
     const applySharedState = () => {
       try {
@@ -355,20 +309,81 @@ export function setupBlocklySync(workspace: any, ydoc: Y.Doc) {
         
         // Clear workspace and load new state
         workspace.clear();
+        
+        // Access Blockly.Xml safely
+        let blocklyXml: any;
+        if (Blockly && Blockly.Xml) {
+          blocklyXml = Blockly.Xml;
+        } else if (typeof window !== 'undefined' && (window as any).Blockly && (window as any).Blockly.Xml) {
+          blocklyXml = (window as any).Blockly.Xml;
+        }
+        
+        if (!blocklyXml || typeof blocklyXml.textToDom !== 'function') {
+          throw new Error('Could not find textToDom function');
+        }
+        
         const xmlDom = blocklyXml.textToDom(xmlText);
         blocklyXml.domToWorkspace(xmlDom, workspace);
         
         // Re-add listeners
         workspace.addChangeListener(changeListener);
         
-        // Reset flags
+        // Reset flag
         applyingChanges = false;
         
-        console.log('Applied shared state successfully');
+        console.log('Successfully applied shared state to workspace');
       } catch (error) {
         console.error('Error applying shared state:', error);
+        // Reset flags in case of error
         applyingChanges = false;
-        workspace.addChangeListener(changeListener);
+        
+        // Re-add listeners in case they were removed
+        try {
+          workspace.addChangeListener(changeListener);
+        } catch (e) {
+          console.error('Error re-adding change listener:', e);
+        }
+      }
+    };
+    
+    // Function to sync workspace to shared document
+    const syncToSharedState = () => {
+      try {
+        if (applyingChanges) return; // Don't sync if we're applying changes
+        
+        console.log('Syncing workspace to shared state');
+        
+        // Set the flag to prevent recursive updates
+        applyingChanges = true;
+        
+        // Access Blockly.Xml safely
+        let blocklyXml: any;
+        if (Blockly && Blockly.Xml) {
+          blocklyXml = Blockly.Xml;
+        } else if (typeof window !== 'undefined' && (window as any).Blockly && (window as any).Blockly.Xml) {
+          blocklyXml = (window as any).Blockly.Xml;
+        }
+        
+        if (!blocklyXml || typeof blocklyXml.workspaceToDom !== 'function') {
+          throw new Error('Could not find workspaceToDom function');
+        }
+        
+        // Convert workspace to XML DOM
+        const dom = blocklyXml.workspaceToDom(workspace);
+        
+        // Convert DOM to text
+        const text = blocklyXml.domToText(dom);
+        
+        // Update the shared state
+        console.log('Updating shared workspace state');
+        sharedBlocks.set('workspace', text);
+        
+        // Reset flag
+        applyingChanges = false;
+      } catch (err) {
+        console.error('Error updating shared state:', err);
+        // Reset flag in case of error
+        applyingChanges = false;
       }
     };
     
