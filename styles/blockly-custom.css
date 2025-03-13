@@ -1,0 +1,224 @@
+/* Custom styling for Blockly toolbox */
+
+/* Toolbox background and layout */
+.blocklyToolboxDiv {
+  background-color: #2c3e50 !important;
+  color: #ecf0f1 !important;
+  box-shadow: 2px 0 5px rgba(0, 0, 0, 0.2) !important;
+  overflow: hidden !important;
+  padding: 8px 0 !important;
+  width: 220px !important; /* Slightly wider to accommodate icons */
+  border-radius: 0 8px 8px 0 !important; /* Rounded corners on right side */
+}
+
+/* Header for categories */
+.blocklyToolboxCategory {
+  margin: 0 !important;
+  padding: 0 !important;
+}
+
+/* Category styling */
+.blocklyTreeRow {
+  height: 42px !important;
+  line-height: 42px !important;
+  margin: 3px 0 !important;
+  padding: 0 8px 0 16px !important;
+  display: flex !important;
+  align-items: center !important;
+  transition: all 0.2s ease !important;
+  border-radius: 0 8px 8px 0 !important;
+  position: relative !important;
+}
+
+.blocklyTreeRow:hover {
+  background-color: rgba(255, 255, 255, 0.1) !important;
+  cursor: pointer !important;
+}
+
+.blocklyTreeSelected {
+  background-color: rgba(255, 255, 255, 0.15) !important;
+}
+
+/* Fix selected state better */
+.blocklyTreeRow.blocklyTreeSelected {
+  font-weight: 600 !important;
+  background-color: rgba(255, 255, 255, 0.15) !important;
+}
+
+/* Category icons styling */
+.category-icon {
+  margin-right: 10px !important;
+  opacity: 0.9 !important;
+  transition: opacity 0.2s !important;
+  filter: drop-shadow(0px 1px 2px rgba(0,0,0,0.3)) !important;
+}
+
+.blocklyTreeRow:hover .category-icon {
+  opacity: 1 !important;
+}
+
+/* Category label styling */
+.blocklyTreeLabel {
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif !important;
+  font-size: 14px !important;
+  font-weight: 500 !important;
+  color: rgba(255, 255, 255, 0.95) !important;
+  display: inline-block !important;
+  vertical-align: middle !important;
+}
+
+/* Category icons/bullets - hide default */
+.blocklyTreeIcon {
+  display: none !important;
+}
+
+/* Toolbox flyout styling */
+.blocklyFlyout {
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.15) !important;
+}
+
+.blocklyFlyoutBackground {
+  fill: #34495e !important;
+  stroke: none !important;
+  opacity: 0.95 !important;
+}
+
+/* Block styling in the flyout */
+.blocklyFlyout .blocklyPath {
+  filter: drop-shadow(0 1px 3px rgba(0, 0, 0, 0.3)) !important;
+  transition: filter 0.2s ease !important;
+}
+
+.blocklyFlyout .blocklyDraggable:hover {
+  filter: drop-shadow(0 2px 5px rgba(0, 0, 0, 0.4)) !important;
+}
+
+/* Make scrollbars more modern */
+.blocklyScrollbarHandle {
+  fill: rgba(255, 255, 255, 0.3) !important;
+  stroke: none !important;
+  transition: fill 0.3s !important;
+  opacity: 0.8 !important;
+}
+
+.blocklyScrollbarHandle:hover {
+  fill: rgba(255, 255, 255, 0.5) !important;
+}
+
+/* Workspace rule lines */
+.blocklyMainBackground {
+  stroke-width: 0 !important; /* Remove the default grid outline */
+}
+
+/* Grid pattern */
+.blocklyGridPattern path {
+  stroke: rgba(0, 0, 0, 0.05) !important;
+  stroke-width: 1 !important;
+}
+
+/* Category indicator colors - applied to the left side of each row */
+.blocklyTreeRow::before {
+  content: "" !important;
+  position: absolute !important;
+  left: 0 !important;
+  top: 0 !important;
+  bottom: 0 !important;
+  width: 5px !important;
+  background-color: transparent !important;
+  transition: all 0.2s ease !important;
+}
+
+/* Category color indicators for each category */
+.blocklyTreeRow[data-category="logic"]::before {
+  background-color: #5b80a5 !important;
+}
+
+.blocklyTreeRow[data-category="loops"]::before {
+  background-color: #5ba55b !important;
+}
+
+.blocklyTreeRow[data-category="math"]::before {
+  background-color: #5b67a5 !important;
+}
+
+.blocklyTreeRow[data-category="text"]::before {
+  background-color: #5ba58c !important;
+}
+
+.blocklyTreeRow[data-category="lists"]::before {
+  background-color: #745ba5 !important;
+}
+
+.blocklyTreeRow[data-category="variables"]::before {
+  background-color: #a55b80 !important;
+}
+
+.blocklyTreeRow[data-category="functions"]::before {
+  background-color: #995ba5 !important;
+}
+
+/* Improve flyout buttons appearance */
+.blocklyFlyoutButton {
+  fill: #3498db !important;
+  filter: drop-shadow(0px 1px 2px rgba(0,0,0,0.2)) !important;
+}
+
+.blocklyFlyoutButtonShadow {
+  fill: rgba(0, 0, 0, 0.2) !important;
+}
+
+.blocklyFlyoutButton:hover {
+  fill: #2980b9 !important;
+}
+
+.blocklyFlyoutLabel {
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif !important;
+  font-size: 13px !important;
+  fill: #fff !important;
+}
+
+/* Dark mode adjustments */
+@media (prefers-color-scheme: dark) {
+  .blocklyToolboxDiv {
+    background-color: #1a2533 !important; /* Darker background for dark mode */
+  }
+  
+  .blocklyFlyoutBackground {
+    fill: #243441 !important;
+  }
+  
+  .blocklyGridPattern path {
+    stroke: rgba(255, 255, 255, 0.05) !important;
+  }
+}
+
+/* Block connection highlights */
+.blocklyHighlightedConnectionPath {
+  stroke: #fff !important;
+  stroke-width: 3px !important;
+  stroke-opacity: 0.8 !important;
+}
+
+/* Flyout blocks styling */
+.blocklyFlyout .blocklyBlockBackground {
+  stroke-width: 1px !important;
+}
+
+/* Block shadow on drag */
+.blocklyDragging > .blocklyPath {
+  filter: drop-shadow(0 3px 6px rgba(0, 0, 0, 0.4)) !important;
+}
+
+/* Better disabled block appearance */
+.blocklyDisabled > .blocklyPath {
+  fill-opacity: 0.5 !important;
+}
+
+/* Make trash icon more visible */
+.blocklyTrash {
+  opacity: 0.8 !important;
+}
+
+.blocklyTrash:hover {
+  opacity: 1 !important;
+}

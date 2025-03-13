@@ -1,0 +1,34 @@
+.container {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  width: 100%;
+  overflow: hidden;
+  background-color: #f5f5f5;
+}
+
+.mainContent {
+  display: flex;
+  flex: 1;
+  overflow: hidden;
+}
+
+.leftPanel {
+  display: none; /* Hide the left panel since we're using Blockly's built-in toolbox */
+}
+
+.middlePanel {
+  width: 70%; /* Increased from 50% to 70% now that we removed the left panel */
+  overflow: hidden;
+  background-color: white;
+  position: relative;
+}
+
+.rightPanel {
+  width: 30%;
+  min-width: 240px;
+  background-color: #fff;
+  border-left: 1px solid #ddd;
+  overflow-y: auto;
+  overflow-x: hidden;
+}

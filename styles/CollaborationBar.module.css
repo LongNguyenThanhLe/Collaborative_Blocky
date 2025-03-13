@@ -1,0 +1,139 @@
+.collaborationBar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 16px;
+  background-color: white;
+  border-top: 1px solid #ddd;
+  height: 48px;
+}
+
+.collaboratorsSection {
+  display: flex;
+  align-items: center;
+}
+
+.onlineCollaborators {
+  display: flex;
+  align-items: center;
+}
+
+.collaboratorAvatar {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: white;
+  font-size: 12px;
+  font-weight: 500;
+  margin-right: 8px;
+  position: relative;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+}
+
+.currentUser {
+  border: 2px solid #4D97FF;
+}
+
+.onlineIndicator {
+  position: absolute;
+  width: 8px;
+  height: 8px;
+  background-color: #27AE60;
+  border-radius: 50%;
+  bottom: 0;
+  right: 0;
+  border: 1px solid white;
+}
+
+.offlineIndicator {
+  position: absolute;
+  width: 8px;
+  height: 8px;
+  background-color: #bbb;
+  border-radius: 50%;
+  bottom: 0;
+  right: 0;
+  border: 1px solid white;
+}
+
+.sceneIndicator {
+  position: absolute;
+  top: -6px;
+  right: -6px;
+  background-color: white;
+  border-radius: 10px;
+  padding: 1px 4px;
+  font-size: 8px;
+  color: #222;
+  border: 1px solid #ddd;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+}
+
+.offlineGroup {
+  margin-left: 4px;
+}
+
+.offlineAvatar {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background-color: #f0f0f0;
+  color: #444;
+  font-size: 10px;
+  margin-right: 8px;
+  position: relative;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+}
+
+.syncStatus {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.syncIndicator {
+  display: flex;
+  align-items: center;
+  font-size: 12px;
+  color: #4CAF50;
+}
+
+.syncText {
+  margin-left: 4px;
+  color: #222;
+}
+
+.collaboratorsCounter {
+  display: flex;
+  align-items: center;
+  font-size: 12px;
+  color: #333;
+}
+
+.collaboratorsCount {
+  margin-left: 4px;
+  color: #222;
+}
+
+.inviteButton {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 10px;
+  background-color: #f0f0f0;
+  border: none;
+  border-radius: 4px;
+  font-size: 12px;
+  cursor: pointer;
+  color: #222;
+}
+
+.inviteButton:hover {
+  background-color: #e0e0e0;
+}

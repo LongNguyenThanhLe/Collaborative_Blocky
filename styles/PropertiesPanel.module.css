@@ -1,0 +1,257 @@
+.propertiesPanel {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  overflow-y: auto;
+  padding: 16px;
+}
+
+.previewArea {
+  width: 100%;
+  height: 180px;
+  border-radius: 8px;
+  overflow: hidden;
+  margin-bottom: 20px;
+  background-color: #f5f5f5;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+}
+
+.canvasContainer {
+  width: 100%;
+  height: 100%;
+  position: relative;
+  overflow: hidden;
+}
+
+.previewBackground {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  z-index: 1;
+}
+
+.backdropImage {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.previewSprite {
+  position: absolute;
+  width: 40px;
+  height: 40px;
+  z-index: 10;
+  cursor: pointer;
+  transition: transform 0.3s ease;
+}
+
+.previewSprite img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.selectedSprite {
+  outline: 2px solid #4D97FF;
+  outline-offset: 2px;
+}
+
+.sectionHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+}
+
+.sectionHeader h3 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+  color: #222;
+}
+
+.addButton {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 8px;
+  background-color: #f0f0f0;
+  border: none;
+  border-radius: 4px;
+  font-size: 13px;
+  cursor: pointer;
+  color: #222;
+}
+
+.addButton:hover {
+  background-color: #e0e0e0;
+}
+
+.spriteLibrary,
+.backdropLibrary {
+  margin-bottom: 20px;
+}
+
+/* Sprite Properties */
+.spriteProperties {
+  background-color: #f5f5f5;
+  border-radius: 8px;
+  padding: 12px;
+  margin-bottom: 16px;
+}
+
+.propertyRow {
+  margin-bottom: 10px;
+}
+
+.propertyRow label {
+  display: block;
+  font-size: 13px;
+  margin-bottom: 4px;
+  color: #333;
+}
+
+.inputWithIcons {
+  display: flex;
+  width: 100%;
+}
+
+.nameInput {
+  flex: 1;
+  padding: 6px 8px;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  font-size: 13px;
+  color: #222;
+}
+
+.iconButtons {
+  display: flex;
+  margin-left: 8px;
+}
+
+.iconButton {
+  width: 26px;
+  height: 26px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: none;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  color: #444;
+}
+
+.iconButton:hover {
+  background-color: #e0e0e0;
+  color: #222;
+}
+
+/* Position and Rotation */
+.positionInputs {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.positionInput {
+  flex: 1;
+}
+
+.positionInput label {
+  display: block;
+  font-size: 12px;
+  margin-bottom: 4px;
+  color: #333;
+}
+
+.coordInput {
+  width: 100%;
+  padding: 6px 8px;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  font-size: 13px;
+  color: #222;
+}
+
+.rotationInputs {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.rotationInput {
+  flex: 1;
+}
+
+.directionButton {
+  width: 100%;
+  padding: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  background-color: #f0f0f0;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  font-size: 13px;
+  cursor: pointer;
+  color: #222;
+}
+
+.directionButton:hover {
+  background-color: #e0e0e0;
+}
+
+/* Sprite and Backdrop Galleries */
+.spriteGallery,
+.backdropGallery {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+}
+
+.spriteCard,
+.backdropCard {
+  border-radius: 6px;
+  overflow: hidden;
+  cursor: pointer;
+  transition: transform 0.2s, box-shadow 0.2s;
+  background-color: #f5f5f5;
+}
+
+.spriteCard:hover,
+.backdropCard:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+}
+
+.selectedCard {
+  border: 2px solid #4D97FF;
+}
+
+.spriteImage,
+.backdropImage {
+  width: 100%;
+  height: 60px;
+  object-fit: contain;
+  background-color: #fff;
+}
+
+.spriteName,
+.backdropName {
+  display: block;
+  padding: 6px;
+  font-size: 12px;
+  text-align: center;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: #222;
+}
