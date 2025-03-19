@@ -8,8 +8,10 @@ interface BlocklyWorkspaceProps {
   userId?: string;
   userName?: string;
   userEmail?: string;
+  initialXml?: string;
   onConnectionStatusChange?: (connected: boolean) => void;
   onUserCountChange?: (count: number) => void;
+  onBlocklyInit?: (instance: any) => void;
 }
 
 const BlocklyWorkspace: React.FC<BlocklyWorkspaceProps> = ({ 
@@ -17,8 +19,10 @@ const BlocklyWorkspace: React.FC<BlocklyWorkspaceProps> = ({
   userId = 'anonymous',
   userName = 'Anonymous User',
   userEmail = 'anonymous@example.com',
+  initialXml,
   onConnectionStatusChange,
-  onUserCountChange
+  onUserCountChange,
+  onBlocklyInit
 }) => {
   const blocklyDiv = useRef<HTMLDivElement>(null);
   const [workspace, setWorkspace] = useState<any>(null);
@@ -29,6 +33,7 @@ const BlocklyWorkspace: React.FC<BlocklyWorkspaceProps> = ({
   const [isConnected, setIsConnected] = useState<boolean>(false);
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [debugInfo, setDebugInfo] = useState<string>('');
+  const blocklyInstanceRef = useRef<any>(null);
 
   // Update parent component with connection status
   useEffect(() => {
@@ -43,6 +48,13 @@ const BlocklyWorkspace: React.FC<BlocklyWorkspaceProps> = ({
       onUserCountChange(userCount);
     }
   }, [userCount, onUserCountChange]);
+
+  // Share Blockly instance with parent component
+  useEffect(() => {
+    if (blocklyInstanceRef.current && onBlocklyInit) {
+      onBlocklyInit(blocklyInstanceRef.current);
+    }
+  }, [workspace, onBlocklyInit]);
 
   // Ensure Blockly has time to initialize in production
   useEffect(() => {
@@ -99,10 +111,6 @@ const BlocklyWorkspace: React.FC<BlocklyWorkspaceProps> = ({
         const Blockly = await import('blockly');
         setDebugInfo("Blockly loaded");
         const BlocklyJS = await import('blockly/javascript');
-        
-        // Explicitly import Blockly XML utilities - use correct path
-        // The Xml utility is part of the main Blockly namespace, not a separate module
-        const BlocklyXml = Blockly.Xml;
         
         // Make sure we have all the blocks we need
         await import('blockly/blocks');
@@ -190,8 +198,25 @@ const BlocklyWorkspace: React.FC<BlocklyWorkspaceProps> = ({
         setDebugInfo("Injecting Blockly...");
         const newWorkspace = Blockly.inject(blocklyDiv.current!, options);
         setDebugInfo("Blockly injected successfully");
+        
+        // Store Blockly instance with workspace for external access
+        const blocklyWithWorkspace = {
+          workspace: newWorkspace,
+          Blockly: Blockly,
+          workspaceToXml: () => {
+            try {
+              const xml = (Blockly as any).Xml.workspaceToDom(newWorkspace);
+              return (Blockly as any).Xml.domToText(xml);
+            } catch (err) {
+              console.error("Error converting workspace to XML:", err);
+              return '';
+            }
+          }
+        };
+        
         setWorkspace(newWorkspace);
         blocklyInstance = newWorkspace;
+        blocklyInstanceRef.current = blocklyWithWorkspace;
         
         // Apply our custom styling to the toolbox categories
         setTimeout(applyCustomStyles, 100);
@@ -230,13 +255,30 @@ const BlocklyWorkspace: React.FC<BlocklyWorkspaceProps> = ({
           setTimeout(applyCustomStyles, 200);
         });
 
+        // Load initial XML if provided
+        if (initialXml && Blockly) {
+          try {
+            // Use type assertion to help TypeScript recognize Blockly.Xml
+            const xml = (Blockly as any).Xml.textToDom(initialXml);
+            newWorkspace.clear();
+            (Blockly as any).Xml.domToWorkspace(xml, newWorkspace);
+          } catch (err) {
+            console.error("Error loading initial XML:", err);
+          }
+        }
+
         // Set up collaboration features after workspace is created
         try {
           setCollaborationStatus('Connecting to collaboration server...');
           setIsConnected(false);
           
           // Initialize collaboration
-          const { ydoc, provider, awareness, connected } = await initCollaboration(roomId);
+          const { ydoc, provider, awareness, connected } = await initCollaboration(
+            roomId, 
+            userId, 
+            newWorkspace, 
+            Blockly
+          );
           
           // Set up Blockly synchronization 
           const cleanup = setupBlocklySync(newWorkspace, ydoc, {
@@ -244,12 +286,11 @@ const BlocklyWorkspace: React.FC<BlocklyWorkspaceProps> = ({
           });
           
           // Set up cursor tracking if the provider is available
-          if (blocklyDiv.current && awareness) {
+          if (blocklyDiv.current && provider) {
             setupCursorTracking(
-              blocklyDiv.current,
               newWorkspace,
               ydoc,
-              awareness,
+              provider,
               { 
                 name: userEmail.split('@')[0] || userId,
                 email: userEmail,
@@ -323,6 +364,25 @@ const BlocklyWorkspace: React.FC<BlocklyWorkspaceProps> = ({
       window.removeEventListener('resize', () => {});
     };
   }, [roomId]); // Only re-run if roomId changes
+
+  // Handle page unload to clean up resources
+  useEffect(() => {
+    const handleBeforeUnload = () => {
+      // Send a beacon to the room-leave API to update user presence
+      const apiUrl = `/api/room-leave?roomId=${encodeURIComponent(roomId)}&userId=${encodeURIComponent(userId)}`;
+      navigator.sendBeacon(apiUrl);
+    };
+
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    
+    return () => {
+      window.removeEventListener('beforeunload', handleBeforeUnload);
+      
+      // Also clean up when component unmounts (navigate away or logout)
+      const apiUrl = `/api/room-leave?roomId=${encodeURIComponent(roomId)}&userId=${encodeURIComponent(userId)}`;
+      navigator.sendBeacon(apiUrl);
+    };
+  }, [roomId, userId]);
 
   // Generate toolbox configuration
   function getToolboxConfiguration() {

@@ -1,39 +1,88 @@
-import { useEffect } from 'react';
+import { useState } from 'react';
 import { useRouter } from 'next/router';
-import { auth } from '../lib/firebase';
+import Link from 'next/link';
+import styles from '../styles/Landing.module.css';
 
 export default function Home() {
   const router = useRouter();
 
-  useEffect(() => {
-    // Listen for auth state changes
-    const unsubscribe = auth.onAuthStateChanged((user) => {
-      if (user) {
-        // User is signed in, redirect to dashboard
-        router.replace('/dashboard');
-      } else {
-        // No user is signed in, redirect to login
-        router.replace('/login');
-      }
-    });
+  const handleGetStarted = () => {
+    router.push('/login');
+  };
 
-    // Cleanup subscription on unmount
-    return () => unsubscribe();
-  }, [router]);
-
-  // Return a loading state while determining where to redirect
   return (
-    <div style={{ 
-      display: 'flex', 
-      justifyContent: 'center', 
-      alignItems: 'center', 
-      height: '100vh',
-      backgroundColor: '#f5f5f5'
-    }}>
-      <div style={{ textAlign: 'center' }}>
-        <h1>BlocklyCollab</h1>
-        <p>Redirecting to the right place...</p>
-      </div>
+    <div className={styles.container || "landingContainer"}>
+      <nav className={styles.nav || "nav"}>
+        <div className={styles.logo || "logo"}>
+          <h1>BlocklyCollab</h1>
+        </div>
+        <div className={styles.navLinks || "navLinks"}>
+          <Link href="/login">
+            <span className={styles.navLink || "navLink"}>Login</span>
+          </Link>
+          <Link href="/signup">
+            <span className={styles.navButton || "navButton"}>Sign Up</span>
+          </Link>
+        </div>
+      </nav>
+
+      <main className={styles.main || "main"}>
+        <div className={styles.heroSection || "heroSection"}>
+          <div className={styles.heroContent || "heroContent"}>
+            <h1 className={styles.heroTitle || "heroTitle"}>Learn to Code with Collaborative Blocks</h1>
+            <p className={styles.heroSubtitle || "heroSubtitle"}>
+              BlocklyCollab is a visual programming platform designed to help people learn to code through 
+              collaborative block-based programming.
+            </p>
+            <button 
+              className={styles.ctaButton || "ctaButton"}
+              onClick={handleGetStarted}
+            >
+              Get Started
+            </button>
+          </div>
+          <div className={styles.heroImage || "heroImage"}>
+            {/* Placeholder for a hero image */}
+            <div className={styles.imagePlaceholder || "imagePlaceholder"} 
+                 style={{ 
+                    width: '500px', 
+                    height: '300px', 
+                    backgroundColor: '#e0e0e0',
+                    borderRadius: '8px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center'
+                 }}>
+              <span>Blockly Workspace Preview</span>
+            </div>
+          </div>
+        </div>
+
+        <section className={styles.featuresSection || "featuresSection"}>
+          <h2 className={styles.sectionTitle || "sectionTitle"}>Key Features</h2>
+          <div className={styles.features || "features"}>
+            <div className={styles.featureCard || "featureCard"}>
+              <div className={styles.featureIcon || "featureIcon"}>🧩</div>
+              <h3>Visual Programming</h3>
+              <p>Build programs by connecting blocks together, no typing required.</p>
+            </div>
+            <div className={styles.featureCard || "featureCard"}>
+              <div className={styles.featureIcon || "featureIcon"}>👥</div>
+              <h3>Real-time Collaboration</h3>
+              <p>Work together with friends or classmates on the same project in real-time.</p>
+            </div>
+            <div className={styles.featureCard || "featureCard"}>
+              <div className={styles.featureIcon || "featureIcon"}>💾</div>
+              <h3>Save & Share Projects</h3>
+              <p>Save your work and share it with others to continue building together.</p>
+            </div>
+          </div>
+        </section>
+      </main>
+
+      <footer className={styles.footer || "footer"}>
+        <p> 2025 BlocklyCollab. All rights reserved.</p>
+      </footer>
     </div>
   );
 }

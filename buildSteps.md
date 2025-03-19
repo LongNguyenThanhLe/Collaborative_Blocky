@@ -72,3 +72,40 @@ This document tracks the progress of the BlocklyCollab application from start to
 - Improved error handling in collaboration setup
 - Enhanced cursor tracking with user identity display
 - Added proper cleanup functions for all event listeners
+
+## Current Progress: Implemented File-Based Project Management
+- Created a comprehensive file management system in projects.ts
+- Implemented project creation, retrieval, updating, and deletion functions
+- Added projects.tsx page for users to view and manage their projects
+- Updated workspace.tsx to support loading projects by ID
+- Enhanced BlocklyWorkspace component to handle project XML loading
+- Added proper Firebase security rules for the new collections
+- Fixed serverTimestamp() issues in arrays for Firestore compatibility
+- Added links between dashboard and projects page
+- Improved type safety with proper Timestamp handling
+- Deployed the updated project to Vercel production environment
+
+## Current Progress: Enhanced User Signup Flow and Firebase Optimizations
+- Added updateUserProfile function to firebase.ts for updating user profile data
+- Implemented user caching mechanisms in Firebase utility to reduce read operations
+- Updated signup page to collect additional user information (name and school)
+- Removed landing page and redirected users directly to login screen
+- Optimized Firebase reads and writes in collab.ts with proper caching
+- Implemented batch writes for related Firebase operations to improve performance
+- Added throttling and debouncing using lodash to reduce Firebase write operations
+- Fixed TypeScript errors and improved type safety throughout the application
+- Enhanced error handling for Firestore operations with clearer feedback
+- Improved memory management with proper cache expiration policies
+- Created more efficient presence tracking to minimize Firestore operations
+
+## Current Progress: Recent Changes and Fixes
+- Added comprehensive error handling to protect users from unexpected crashes
+- Implemented proper file management system in the dashboard
+- Created landing page with information about app features
+- Fixed build errors related to function signatures in collab.ts
+- Updated user presence tracking to use a more efficient userIds array and subcollections pattern
+- Added connection status indicators for better collaboration experience
+- Implemented user metrics tracking with comprehensive permission model
+- Fixed circular dependency issues between modules
+- Added Firestore rules for proper security enforcement
+- Created detailed documentation for development and deployment

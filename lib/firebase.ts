@@ -1,6 +1,6 @@
 // Firebase configuration
 import { initializeApp, getApps, FirebaseApp } from "firebase/app";
-import { getFirestore, Firestore } from "firebase/firestore";
+import { getFirestore, Firestore, doc, setDoc, getDoc, DocumentData, QueryDocumentSnapshot, DocumentSnapshot } from "firebase/firestore";
 import { 
   getAuth, 
   Auth, 
@@ -12,7 +12,9 @@ import {
   GoogleAuthProvider,
   signInWithPopup,
   signInWithRedirect,
-  getRedirectResult
+  getRedirectResult,
+  updateProfile,
+  UserCredential
 } from "firebase/auth";
 
 // Your web app's Firebase configuration
@@ -70,6 +72,87 @@ try {
     db = {} as Firestore;
     auth = {} as Auth;
     googleProvider = {} as GoogleAuthProvider;
+  }
+}
+
+// Cache for user data to reduce Firestore reads
+const userCache = new Map<string, {data: DocumentData, timestamp: number}>();
+const CACHE_EXPIRY = 5 * 60 * 1000; // 5 minutes cache expiry
+
+// Check if data in cache is still valid
+const isCacheValid = (cacheEntry: {data: DocumentData, timestamp: number}) => {
+  return Date.now() - cacheEntry.timestamp < CACHE_EXPIRY;
+};
+
+// Update profile for the current user
+export async function updateUserProfile(profileData: {
+  displayName?: string | null,
+  photoURL?: string | null
+}): Promise<void> {
+  const user = auth.currentUser;
+  if (!user) {
+    throw new Error('No user is currently signed in');
+  }
+  
+  try {
+    await updateProfile(user, profileData);
+    console.log('User profile updated successfully');
+    
+    // Update cache if it exists
+    const cacheKey = `user_${user.uid}`;
+    if (userCache.has(cacheKey)) {
+      const cachedData = userCache.get(cacheKey);
+      if (cachedData) {
+        userCache.set(cacheKey, {
+          data: {
+            ...cachedData.data,
+            displayName: profileData.displayName || cachedData.data.displayName,
+            photoURL: profileData.photoURL || cachedData.data.photoURL
+          },
+          timestamp: Date.now()
+        });
+      }
+    }
+    
+    return;
+  } catch (error) {
+    console.error('Error updating user profile:', error);
+    throw error;
+  }
+}
+
+// Get user data with caching to reduce Firestore reads
+export async function getUserData(userId: string): Promise<DocumentData | null> {
+  const cacheKey = `user_${userId}`;
+  
+  // Check if we have valid cached data
+  if (userCache.has(cacheKey)) {
+    const cachedData = userCache.get(cacheKey);
+    if (cachedData && isCacheValid(cachedData)) {
+      console.log('Using cached user data');
+      return cachedData.data;
+    }
+  }
+  
+  try {
+    // No valid cache, fetch from Firestore
+    const userRef = doc(db, 'users', userId);
+    const userSnap = await getDoc(userRef);
+    
+    if (userSnap.exists()) {
+      // Cache the result
+      const userData = userSnap.data();
+      userCache.set(cacheKey, {
+        data: userData,
+        timestamp: Date.now()
+      });
+      return userData;
+    } else {
+      return null;
+    }
+  } catch (error) {
+    console.error('Error fetching user data:', error);
+    return null;
   }
 }
 

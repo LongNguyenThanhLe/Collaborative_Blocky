@@ -142,23 +142,29 @@ export default function Dashboard() {
       
       {/* Main content */}
       <div className={styles.content}>
-        <header className={styles.header}>
-          <h1>Your Projects</h1>
-          <div className={styles.actions}>
-            <button 
-              className={styles.newButton} 
-              onClick={() => setShowJoinRoomModal(true)}
-            >
+        <div className={styles.dashboardHeader}>
+          <h1><MdDashboard /> Room Dashboard</h1>
+          <div className={styles.dashboardActions}>
+            <Link href="/projects" className={styles.fileProjectsButton}>
+              <FaPuzzlePiece /> File-based Projects
+            </Link>
+            <button onClick={() => setShowJoinRoomModal(true)} className={styles.joinRoomButton}>
               Join Room
             </button>
-            <button 
-              className={styles.newButton} 
-              onClick={() => setShowNewRoomModal(true)}
-            >
-              <FaPlus /> New Project
+            <button onClick={() => setShowNewRoomModal(true)} className={styles.createRoomButton}>
+              <FaPlus /> Create Room
             </button>
           </div>
-        </header>
+        </div>
+        
+        {/* Display information about file-based projects */}
+        <div className={styles.infoBox}>
+          <h3>New: File-based Projects</h3>
+          <p>
+            We now offer a file-based project system similar to Figma! Create, save, and share your Blockly projects 
+            with collaborators. <Link href="/projects">Try it now</Link>!
+          </p>
+        </div>
         
         {errorMessage && (
           <div className={styles.errorMessage}>

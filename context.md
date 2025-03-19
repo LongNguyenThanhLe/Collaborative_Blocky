@@ -66,6 +66,30 @@ BlocklyCollab is an enhanced version of Google's Blockly programming environment
   - Added missing collaboration functions (setupBlocklySync and setupCursorTracking) to fix build errors
   - Fixed function signatures to match component usage patterns
   - Enhanced error handling in collaboration setup
+- **2025-03-20**:
+  - Implemented file-based project management system
+  - Created new projects.ts library for project handling
+  - Added projects.tsx page for viewing and managing saved projects
+  - Updated workspace.tsx to support loading projects by ID
+  - Enhanced BlocklyWorkspace component to handle project XML loading
+  - Added ability to save, load, and share projects
+  - Created proper Firebase security rules for project collections
+  - Fixed serverTimestamp issues in arrays for improved Firebase compatibility
+  - Added links between dashboard and projects page
+  - Fixed type errors related to Timestamp objects
+  - Deployed project to Vercel production environment
+- **2025-03-21**:
+  - Enhanced user signup flow to collect additional information (name and school)
+  - Added updateUserProfile function to firebase.ts for proper profile management
+  - Implemented comprehensive caching system in Firebase utility to reduce quota usage
+  - Created an improved landing page with better feature descriptions and cleaner UI
+  - Optimized Firebase reads and writes in collab.ts with advanced caching techniques
+  - Implemented batch writes for related Firestore operations to improve performance
+  - Added throttling and debouncing with lodash to minimize Firebase operations
+  - Fixed various TypeScript errors throughout the application
+  - Enhanced error handling for all Firestore operations
+  - Improved presence tracking to minimize Firebase database operations
+  - Updated user status tracking to be more bandwidth-efficient
 
 ## Firebase Optimization
 - Implemented in-memory cache for room data with 5-minute expiry
@@ -76,6 +100,13 @@ BlocklyCollab is an enhanced version of Google's Blockly programming environment
 - Consolidated room state in a single document structure
 - Optimized error handling for quota exceeded errors
 - Added navigator.sendBeacon for reliable cleanup when users leave
+- Implemented comprehensive caching system in Firebase utility to reduce quota usage
+- Optimized Firebase reads and writes in collab.ts with advanced caching techniques
+- Implemented batch writes for related Firestore operations to improve performance
+- Added throttling and debouncing with lodash to minimize Firebase operations
+- Enhanced error handling for all Firestore operations
+- Improved presence tracking to minimize Firebase database operations
+- Updated user status tracking to be more bandwidth-efficient
 
 ## Project Management Features
 - Dashboard page shows all projects a user has joined

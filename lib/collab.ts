@@ -4,11 +4,11 @@ import { WebsocketProvider } from 'y-websocket';
 import { 
   doc, getDoc, setDoc, onSnapshot, updateDoc, 
   collection, getDocs, addDoc, serverTimestamp,
-  writeBatch, query, limit, where, Timestamp 
+  writeBatch, query, limit, where, Timestamp, DocumentData, arrayUnion, arrayRemove 
 } from "firebase/firestore";
-import { db } from './firebase';
-import { auth } from './firebase';
+import { db, auth } from './firebase';
 import { onAuthStateChanged, getAuth } from 'firebase/auth';
+import { debounce, throttle } from 'lodash';
 // These imports are dynamically loaded at runtime
 // We're just declaring the types here for TypeScript
 declare const Blockly: any;
@@ -21,483 +21,258 @@ const MAX_RETRY_ATTEMPTS = 3;
 const RETRY_DELAY = 5000; // 5 seconds
 
 // Caches to reduce Firestore reads
-const roomCache = new Map();
-const userRoomsCache = new Map();
+interface CacheEntry {
+  data: any;
+  timestamp: number;
+}
+const roomDataCache = new Map<string, CacheEntry>();
+const roomUsersCache = new Map<string, CacheEntry>();
+const userRoomsCache = new Map<string, CacheEntry>();
 
-// Last update timestamps to reduce writes
-const lastUserStatusUpdate = new Map();
-const lastUserCountUpdate = new Map();
-
-// Flag to track quota exceeded errors
-let quotaExceeded = false;
-let lastQuotaExceededTime = 0;
-
-// Helper to check if we recently hit quota limits
-const isQuotaExceeded = () => {
-  const now = Date.now();
-  // If quota was exceeded in the last 5 minutes, consider it still exceeded
-  if (quotaExceeded && now - lastQuotaExceededTime < 5 * 60 * 1000) {
-    return true;
-  }
-  quotaExceeded = false;
-  return false;
+// Check if cache is valid
+const isCacheValid = (entry: CacheEntry | undefined): boolean => {
+  if (!entry) return false;
+  return Date.now() - entry.timestamp < CACHE_EXPIRY;
 };
 
-// Helper to handle Firestore errors
-const handleFirestoreError = (error: any, errorMessage: string) => {
-  console.error(errorMessage, error);
-  
-  // Check for quota exceeded errors
-  if (error.code === 'resource-exhausted') {
-    quotaExceeded = true;
-    lastQuotaExceededTime = Date.now();
-    console.warn('Firebase quota exceeded. Using cached data where possible.');
-    return 'quota-exceeded';
-  }
-  
-  // Check for permission errors
-  if (error.code === 'permission-denied') {
-    console.warn('Firebase permission denied. User may not be authorized.');
-    return 'permission-denied';
-  }
-  
-  return 'error';
-};
+// Clear cache for a specific room
+export function clearRoomCache(roomId: string) {
+  roomDataCache.delete(roomId);
+  roomUsersCache.delete(roomId);
+}
 
-// Cache for room data to reduce Firestore reads
-const roomDataCache = new Map<string, {data: any, timestamp: number, expiry?: number}>();
-
-/**
- * Creates a new collaborative room and associates it with the user
- * @param roomName Display name for the room
- * @param userId ID of the user creating the room
- * @returns The ID of the newly created room
- */
-export async function createNewRoom(roomName: string, userId: string): Promise<string> {
-  if (!roomName || !userId) {
-    throw new Error('Room name and user ID are required');
+// Get room data with caching to reduce Firestore reads
+export async function getCachedRoomData(roomId: string) {
+  const cachedData = roomDataCache.get(roomId);
+  if (cachedData && isCacheValid(cachedData)) {
+    console.log('Using cached room data for', roomId);
+    return cachedData.data;
   }
   
   try {
-    // Generate a unique room ID
-    const roomId = `room_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
-    
-    // Create the room document in Firestore
+    console.log('Fetching room data from Firestore for', roomId);
     const roomRef = doc(db, 'rooms', roomId);
-    const roomData = {
-      roomName,
-      createdAt: serverTimestamp(),
-      createdBy: userId,
-      users: [{
-        userId,
-        joinedAt: serverTimestamp()
-      }],
-      userCount: 1,
-      lastActivity: serverTimestamp()
-    };
+    const roomSnap = await getDoc(roomRef);
     
-    await setDoc(roomRef, roomData);
+    if (roomSnap.exists()) {
+      const roomData = roomSnap.data();
+      // Cache the room data
+      roomDataCache.set(roomId, {
+        data: roomData,
+        timestamp: Date.now()
+      });
+      return roomData;
+    } else {
+      console.warn('Room not found:', roomId);
+      return null;
+    }
+  } catch (error) {
+    console.error('Error getting room data:', error);
+    return null;
+  }
+}
+
+// Get room users with caching
+export async function getRoomUsers(roomId: string) {
+  const cachedUsers = roomUsersCache.get(roomId);
+  if (cachedUsers && isCacheValid(cachedUsers)) {
+    console.log('Using cached room users for', roomId);
+    return cachedUsers.data;
+  }
+  
+  try {
+    console.log('Fetching room users from Firestore for', roomId);
     
-    // Associate room with user in user's rooms collection
+    // Get room document first to check if it exists
+    const roomRef = doc(db, 'rooms', roomId);
+    const roomDoc = await getDoc(roomRef);
+    
+    if (!roomDoc.exists()) {
+      console.log('Room not found');
+      return [];
+    }
+    
+    // Get userIds from the room document
+    const roomData = roomDoc.data();
+    const userIds = roomData?.userIds || [];
+    
+    if (userIds.length === 0) {
+      return [];
+    }
+    
+    // Get user details from the subcollection
+    const usersCollectionRef = collection(db, 'rooms', roomId, 'users');
+    const usersSnapshot = await getDocs(usersCollectionRef);
+    
+    const users = usersSnapshot.docs.map(doc => ({
+      id: doc.id,
+      ...doc.data()
+    }));
+    
+    // Cache the results
+    roomUsersCache.set(roomId, {
+      data: users,
+      timestamp: Date.now()
+    });
+    
+    return users;
+  } catch (error) {
+    console.error('Error getting room users:', error);
+    return [];
+  }
+}
+
+// Add room to user history with batched write
+export async function addRoomToUserHistory(userId: string, roomId: string, roomName: string) {
+  try {
+    // Create a batch to combine operations
+    const batch = writeBatch(db);
+    
+    // User's room reference
     const userRoomRef = doc(db, 'users', userId, 'rooms', roomId);
-    await setDoc(userRoomRef, {
+    
+    // Add room to user's room history
+    batch.set(userRoomRef, {
       roomId,
       roomName,
       lastAccessed: serverTimestamp(),
-      role: 'owner',
-      createdAt: serverTimestamp()
+      joinedAt: serverTimestamp()
     });
     
-    // Clear user rooms cache to force refresh
+    // Commit the batch
+    await batch.commit();
+    
+    // Clear any related cache
     userRoomsCache.delete(userId);
+    
+    return true;
+  } catch (error) {
+    console.error('Error adding room to user history:', error);
+    return false;
+  }
+}
+
+// Throttled function to update user activity in room
+// Only updates every 30 seconds to reduce write operations
+const updateUserRoomActivityThrottled = throttle(async (userId: string, roomId: string) => {
+  try {
+    // Only update if the user is still connected
+    const user = auth.currentUser;
+    if (!user || user.uid !== userId) return;
+    
+    const userRoomRef = doc(db, 'users', userId, 'rooms', roomId);
+    await updateDoc(userRoomRef, {
+      lastAccessed: serverTimestamp()
+    });
+    
+  } catch (error) {
+    console.error('Error updating user room activity:', error);
+  }
+}, 30000); // Throttle to once every 30 seconds
+
+// Get user rooms with caching
+export async function getUserRooms(userId: string) {
+  // Check cache first
+  const cachedRooms = userRoomsCache.get(userId);
+  if (cachedRooms && isCacheValid(cachedRooms)) {
+    console.log('Using cached user rooms for', userId);
+    return cachedRooms.data;
+  }
+  
+  try {
+    console.log('Fetching user rooms from Firestore for', userId);
+    const roomsRef = collection(db, 'users', userId, 'rooms');
+    const roomsQuery = query(roomsRef);
+    const querySnapshot = await getDocs(roomsQuery);
+    
+    const rooms: any[] = [];
+    querySnapshot.forEach((doc) => {
+      rooms.push({
+        id: doc.id,
+        ...doc.data()
+      });
+    });
+    
+    // Cache the results
+    userRoomsCache.set(userId, {
+      data: rooms,
+      timestamp: Date.now()
+    });
+    
+    return rooms;
+  } catch (error) {
+    console.error('Error getting user rooms:', error);
+    return [];
+  }
+}
+
+// Create a new room with optimized batched writes
+export async function createNewRoom(roomName: string, userId: string): Promise<string> {
+  if (!userId) {
+    console.error('User ID is required to create a room');
+    throw new Error('User ID is required');
+  }
+  
+  try {
+    // Generate a unique room ID using timestamp and random string
+    const timestamp = Date.now();
+    const randomSuffix = Math.random().toString(36).substring(2, 10);
+    const roomId = `room_${timestamp}_${randomSuffix}`;
+    
+    // Create a batch for multiple operations
+    const batch = writeBatch(db);
+    
+    // Create the room document with userIds array instead of users array
+    const roomRef = doc(db, 'rooms', roomId);
+    batch.set(roomRef, {
+      roomId,
+      name: roomName,
+      createdBy: userId,
+      createdAt: serverTimestamp(),
+      lastActivity: serverTimestamp(),
+      userIds: [userId], // Array of user IDs currently in the room
+      isActive: true
+    });
+    
+    // Add user details to the room's users subcollection
+    const userRef = doc(db, 'rooms', roomId, 'users', userId);
+    batch.set(userRef, {
+      id: userId,
+      joinedAt: serverTimestamp(),
+      lastActive: serverTimestamp(),
+      isCreator: true
+    });
+    
+    // Also add room to user's rooms collection
+    const userRoomRef = doc(db, 'users', userId, 'rooms', roomId);
+    batch.set(userRoomRef, {
+      roomId,
+      name: roomName,
+      joinedAt: serverTimestamp(),
+      lastVisited: serverTimestamp(),
+      isCreator: true
+    });
+    
+    // Execute all operations as a batch
+    await batch.commit();
+    
+    // Clear any cached room data
+    clearRoomCache(roomId);
     
     return roomId;
   } catch (error) {
-    handleFirestoreError(error, 'Error creating new room:');
+    console.error('Error creating new room:', error);
     throw error;
   }
 }
 
-/**
- * Get room data with caching to reduce Firestore reads
- */
-export async function getCachedRoomData(roomId: string) {
-  // Check cache first
-  const cachedData = roomDataCache.get(roomId);
-  const now = Date.now();
-  
-  // If we have valid cached data or quota is exceeded, use cache
-  if ((cachedData && (now - cachedData.timestamp < CACHE_EXPIRY)) || isQuotaExceeded()) {
-    console.log('Using cached room data');
-    return cachedData?.data || null;
-  }
-  
-  // Cache miss, fetch from Firestore
-  try {
-    const roomRef = doc(db, 'rooms', roomId);
-    const roomSnapshot = await getDoc(roomRef);
-    
-    if (roomSnapshot.exists()) {
-      const data = roomSnapshot.data();
-      // Update cache with a longer expiry when quota is exceeded
-      const expiry = isQuotaExceeded() ? CACHE_EXPIRY * 2 : CACHE_EXPIRY;
-      roomDataCache.set(roomId, {data, timestamp: now, expiry});
-      return data;
-    }
-    return null;
-  } catch (error) {
-    const errorType = handleFirestoreError(error, 'Error fetching room data:');
-    
-    // Return cached data even if expired in case of error
-    if (errorType === 'quota-exceeded' && cachedData) {
-      console.log('Using expired cache due to quota limit');
-      return cachedData.data;
-    }
-    
-    return null;
-  }
-}
-
-/**
- * Get user rooms with caching to reduce Firestore reads
- */
-export async function getUserRooms(userId: string) {
-  if (!userId) return [];
-  
-  // Check cache first
-  const cachedRooms = userRoomsCache.get(userId);
-  const now = Date.now();
-  
-  // If we have valid cached data or quota is exceeded, use cache
-  if ((cachedRooms && (now - cachedRooms.timestamp < CACHE_EXPIRY)) || isQuotaExceeded()) {
-    console.log('Using cached user rooms');
-    return cachedRooms?.data || [];
-  }
-  
-  try {
-    const userRoomsRef = collection(db, 'users', userId, 'rooms');
-    // Only fetch maximum 20 most recently accessed rooms to limit data transfer
-    const roomsQuery = query(userRoomsRef, limit(20));
-    const snapshot = await getDocs(roomsQuery);
-    
-    const rooms = snapshot.docs.map(doc => ({
-      ...doc.data(),
-      id: doc.id
-    }));
-    
-    // Update cache
-    userRoomsCache.set(userId, {data: rooms, timestamp: now});
-    return rooms;
-  } catch (error) {
-    const errorType = handleFirestoreError(error, 'Error getting user rooms:');
-    
-    // Return cached data even if expired in case of error
-    if (errorType === 'quota-exceeded' && cachedRooms) {
-      return cachedRooms.data;
-    }
-    
-    if (errorType === 'permission-denied') {
-      console.warn('User may not be logged in or lacks permission to access rooms');
-    }
-    
-    return [];
-  }
-}
-
-/**
- * Get active users in a specific room
- * @param roomId ID of the room to get users for
- * @returns Array of user objects in the room
- */
-export async function getRoomUsers(roomId: string): Promise<any[]> {
-  if (!roomId) return [];
-  
-  try {
-    // Get room data from cache or Firestore
-    const roomData = await getCachedRoomData(roomId);
-    
-    if (roomData && roomData.users) {
-      // Return users array from room data
-      return roomData.users || [];
-    }
-    
-    // If room data doesn't have users array, try to get directly from room document
-    const roomRef = doc(db, 'rooms', roomId);
-    const roomSnapshot = await getDoc(roomRef);
-    
-    if (roomSnapshot.exists()) {
-      const data = roomSnapshot.data();
-      return data.users || [];
-    }
-    
-    return [];
-  } catch (error) {
-    handleFirestoreError(error, 'Error getting room users:');
-    // Return empty array in case of error
-    return [];
-  }
-}
-
-/**
- * Update room user list with throttling to reduce writes
- */
-export async function updateRoomUserList(roomId: string, userId: string, isJoining: boolean, userName: string = 'Anonymous User') {
-  if (!roomId || !userId) return;
-  
-  const cacheKey = `${roomId}:${userId}`;
-  const now = Date.now();
-  const lastUpdate = lastUserStatusUpdate.get(cacheKey) || 0;
-  
-  // Throttle updates unless user is leaving (isJoining = false)
-  if (isJoining && now - lastUpdate < USER_STATUS_DEBOUNCE) {
-    console.log('Throttling user status update');
-    return;
-  }
-  
-  // Skip updates if quota is exceeded unless user is leaving
-  if (isQuotaExceeded() && isJoining) {
-    console.log('Skipping user status update due to quota limit');
-    return;
-  }
-  
-  try {
-    // Update the timestamp
-    lastUserStatusUpdate.set(cacheKey, now);
-    
-    const roomRef = doc(db, 'rooms', roomId);
-    
-    if (isJoining) {
-      // User is joining - add them to the users object
-      await updateDoc(roomRef, {
-        [`users.${userId}`]: {
-          name: userName,
-          email: '',
-          lastActive: serverTimestamp()
-        }
-      });
-    } else {
-      // User is leaving - mark them as inactive after a significant period
-      const lastActiveThreshold = 10 * 60 * 1000; // 10 minutes
-      const roomData = await getCachedRoomData(roomId);
-      const lastActive = roomData?.users?.[userId]?.lastActive;
-      
-      // Only remove user if they've been inactive for a while
-      if (lastActive && 
-          (new Date().getTime() - (lastActive.toDate?.() || lastActive).getTime() > lastActiveThreshold)) {
-        await updateDoc(roomRef, {
-          [`users.${userId}`]: null
-        });
-      }
-    }
-    
-    // Only update user count if needed
-    await updateRoomUserCount(roomId);
-  } catch (error) {
-    handleFirestoreError(error, 'Error updating room user list:');
-  }
-}
-
-/**
- * Update room user count with throttling
- */
-async function updateRoomUserCount(roomId: string) {
-  if (!roomId) return;
-  
-  const now = Date.now();
-  const lastUpdate = lastUserCountUpdate.get(roomId) || 0;
-  
-  // Throttle updates to once per minute
-  if (now - lastUpdate < USER_COUNT_UPDATE_INTERVAL) {
-    console.log('Throttling user count update');
-    return;
-  }
-  
-  // Skip updates if quota is exceeded
-  if (isQuotaExceeded()) {
-    console.log('Skipping user count update due to quota limit');
-    return;
-  }
-  
-  try {
-    // Update the timestamp
-    lastUserCountUpdate.set(roomId, now);
-    
-    const roomRef = doc(db, 'rooms', roomId);
-    const roomSnapshot = await getDoc(roomRef);
-    
-    if (roomSnapshot.exists()) {
-      const roomData = roomSnapshot.data();
-      const users = roomData.users || {};
-      
-      // Count active users (seen in the last 5 minutes)
-      const activeUsers = Object.values(users).filter((user: any) => 
-        user.lastActive
-      ).length;
-      
-      // Only update if count has changed significantly
-      if (roomData.userCount !== activeUsers) {
-        await updateDoc(roomRef, {
-          userCount: activeUsers,
-          lastUpdated: serverTimestamp()
-        });
-      }
-    }
-  } catch (error) {
-    handleFirestoreError(error, 'Error updating room user count:');
-  }
-}
-
-/**
- * Add a room to user history with checking to reduce writes
- */
-export async function addRoomToUserHistory(userId: string, roomId: string, roomName: string) {
-  if (!userId || !roomId) return;
-  
-  // Skip updates if quota is exceeded
-  if (isQuotaExceeded()) {
-    console.log('Skipping add to history due to quota limit');
-    return;
-  }
-  
-  try {
-    // Get room data using cached function
-    const roomData = await getCachedRoomData(roomId);
-    
-    // Limit writes to Firebase by checking if the room is already in history
-    const userRoomsRef = doc(db, 'users', userId, 'rooms', roomId);
-    const roomDoc = await getDoc(userRoomsRef);
-    
-    // Only write if the room doesn't exist or was last accessed more than 1 hour ago
-    if (!roomDoc.exists() || 
-        (roomDoc.data().lastAccessed && 
-         new Date().getTime() - roomDoc.data().lastAccessed.toDate().getTime() > 3600000)) {
-      
-      await setDoc(userRoomsRef, {
-        roomId,
-        roomName: roomData?.name || roomName,
-        lastAccessed: serverTimestamp(),
-        userCount: roomData?.userCount || 1
-      }, { merge: true });
-    }
-    
-    // Clear user rooms cache to ensure fresh data on next request
-    userRoomsCache.delete(userId);
-  } catch (error) {
-    handleFirestoreError(error, 'Error adding room to history:');
-  }
-}
-
-// Initialize collaboration for a specific room
-export async function initCollaboration(roomId: string): Promise<CollabSetup> {
-  // Create a new Yjs document
-  const ydoc = new Y.Doc();
-  
-  // Create an awareness instance for this document
-  const awareness = new Awareness(ydoc);
-  
-  // Set the local user state with a random name and color
-  let userName = getRandomName();
-  let userColor = getRandomColor();
-  let userEmail = '';
-  let userId = '';
-  
-  // Get current auth user
-  const auth = getAuth();
-  const currentUser = auth.currentUser;
-  
-  if (currentUser) {
-    userEmail = currentUser.email || '';
-    userId = currentUser.uid;
-    userName = currentUser.displayName || userEmail.split('@')[0] || userName;
-    
-    // Add this room to user's history without blocking
-    addRoomToUserHistory(userId, roomId, roomId).catch(console.error);
-  }
-  
-  // Set awareness state with user information
-  awareness.setLocalState({
-    name: userName,
-    email: userEmail,
-    color: userColor,
-    cursor: null,
-    draggingBlock: null, // Track if user is dragging a block
-  });
-  
-  let wsProvider: WebsocketProvider | null = null;
-  let connected = false;
-  
-  // Try connecting to WebSocket server
-  try {
-    console.log(`Connecting to WebSocket server for room: ${roomId}...`);
-    
-    // Get WebSocket server URL from environment or use fallbacks
-    // In production (Vercel), use the deployed WebSocket server
-    // In development, use the local server
-    let serverUrl = typeof window !== 'undefined' ? 
-      process.env.NEXT_PUBLIC_WEBSOCKET_URL || 'wss://collaborative-blockly-ws.onrender.com' :
-      'ws://localhost:1234';
-      
-    // For local development, fallback to localhost
-    if (process.env.NODE_ENV === 'development') {
-      serverUrl = 'ws://localhost:1234';
-    }
-    
-    console.log(`Using WebSocket server: ${serverUrl}`);
-    
-    // Create WebSocket provider
-    wsProvider = new WebsocketProvider(serverUrl, roomId, ydoc);
-    
-    // Update connections to room with debouncing to reduce Firestore writes
-    let lastUpdate = 0;
-    wsProvider.on('status', (event: { status: 'connecting' | 'connected' | 'disconnected' }) => {
-      const now = Date.now();
-      console.log(`WebSocket status: ${event.status}`);
-      
-      // Only update room state at most once every 30 seconds
-      if (now - lastUpdate > USER_STATUS_DEBOUNCE) {
-        if (event.status === 'connected' && currentUser) {
-          connected = true;
-          // Update room status when connected, but without blocking
-          updateRoomUserList(roomId, currentUser.uid, true).catch(console.error);
-          lastUpdate = now;
-        } else if (event.status === 'disconnected') {
-          connected = false;
-        }
-      }
-    });
-    
-    // Handle window unload to cleanly remove user from room
-    if (typeof window !== 'undefined') {
-      window.addEventListener('beforeunload', () => {
-        if (currentUser) {
-          // Use navigator.sendBeacon for more reliable cleanup on page unload
-          const roomUserUrl = `${process.env.NEXT_PUBLIC_API_URL || ''}/api/room-leave?roomId=${roomId}&userId=${currentUser.uid}`;
-          navigator.sendBeacon(roomUserUrl);
-        }
-      });
-    }
-  } catch (error) {
-    console.error('Error connecting to WebSocket server:', error);
-    console.log('Falling back to local-only collaboration');
-  }
-  
-  return { ydoc, provider: wsProvider, awareness, connected };
-}
-
-/**
- * Sets up Blockly workspace synchronization with Yjs
- * @param workspace Blockly workspace instance
- * @param ydoc Yjs document
- * @param options Optional configuration with Blockly instance
- * @returns Cleanup function
- */
+// Set up collaboration in the workspace
+// Removed unused Blockly parameter to fix build error
 export function setupBlocklySync(workspace: any, ydoc: Y.Doc, options?: {blockly: any}) {
-  // Get Blockly instance from options, required for operation
   const Blockly = options?.blockly;
-  
   if (!Blockly) {
     console.error('Blockly is required for setupBlocklySync');
-    return () => {}; // Return empty cleanup function
+    return () => {};
   }
   
   // Create a shared XML map in the Yjs document
@@ -580,44 +355,36 @@ export function setupBlocklySync(workspace: any, ydoc: Y.Doc, options?: {blockly
   };
 }
 
-/**
- * Sets up cursor tracking and visualization between users
- * @param container DOM element containing the Blockly workspace
- * @param workspace Blockly workspace instance
- * @param ydoc Y.js document
- * @param awareness Y.js awareness instance for presence
- * @param userInfo Optional user information
- * @returns Cleanup function
- */
-export function setupCursorTracking(
-  container: HTMLElement,
-  workspace: any,
-  ydoc: Y.Doc,
-  awareness: Awareness,
-  userInfo?: {
-    name?: string;
-    email?: string;
-    color?: string;
+// Set up cursor tracking between users
+export function setupCursorTracking(workspace: any, ydoc: Y.Doc, provider: any, user: any) {
+  if (!provider || !workspace || !user) {
+    console.warn('Missing required parameters for cursor tracking');
+    return () => {};
   }
-) {
+  
   // Map to store cursor elements for each user
   const cursors = new Map();
   
   // Set local user information if provided
-  if (userInfo && awareness) {
-    const localState = awareness.getLocalState() || {};
-    awareness.setLocalState({
+  if (user && provider.awareness) {
+    const localState = provider.awareness.getLocalState() || {};
+    provider.awareness.setLocalState({
       ...localState,
-      name: userInfo.name || localState.name || 'Anonymous',
-      email: userInfo.email || localState.email || '',
-      color: userInfo.color || localState.color || getRandomColor()
+      name: user.name || localState.name || 'Anonymous',
+      email: user.email || localState.email || '',
+      color: user.color || localState.color || getRandomColor()
     });
   }
   
   // Create and add a cursor element for a user
-  const createCursor = (clientId: number, state: any) => {
+  const createCursor = (clientId: number, state: {
+    name?: string;
+    color?: string;
+    cursor?: { x: number; y: number };
+    email?: string;
+  }) => {
     // Don't create cursor for current user
-    if (clientId === awareness.clientID) return;
+    if (clientId === provider.awareness.clientID) return;
     
     // Remove existing cursor if any
     removeCursor(clientId);
@@ -652,7 +419,7 @@ export function setupCursorTracking(
       cursorEl.appendChild(label);
       
       // Add to workspace
-      container.appendChild(cursorEl);
+      workspace.getInjectionDiv().appendChild(cursorEl);
       
       // Store cursor element
       cursors.set(clientId, { element: cursorEl, state });
@@ -716,9 +483,9 @@ export function setupCursorTracking(
       const workspacePosition = svgPoint.matrixTransform(matrix);
       
       // Update local state in awareness
-      const localState = awareness.getLocalState();
+      const localState = provider.awareness.getLocalState();
       if (localState) {
-        awareness.setLocalState({
+        provider.awareness.setLocalState({
           ...localState,
           cursor: {
             x: workspacePosition.x,
@@ -733,9 +500,9 @@ export function setupCursorTracking(
   
   // Update dragging state
   const onStartDrag = (e: any) => {
-    const localState = awareness.getLocalState();
+    const localState = provider.awareness.getLocalState();
     if (localState) {
-      awareness.setLocalState({
+      provider.awareness.setLocalState({
         ...localState,
         draggingBlock: true
       });
@@ -743,9 +510,9 @@ export function setupCursorTracking(
   };
   
   const onStopDrag = (e: any) => {
-    const localState = awareness.getLocalState();
+    const localState = provider.awareness.getLocalState();
     if (localState) {
-      awareness.setLocalState({
+      provider.awareness.setLocalState({
         ...localState,
         draggingBlock: false
       });
@@ -753,26 +520,26 @@ export function setupCursorTracking(
   };
   
   // Handle awareness changes to update cursors
-  const awarenessChangeHandler = (changes: any) => {
+  const awarenessChangeHandler = (changes: Map<number, any>) => {
     // Get all changes
-    awareness.getStates().forEach((state, clientId) => {
-      if (clientId !== awareness.clientID && state.cursor) {
+    provider.awareness.getStates().forEach((state: any, clientId: number) => {
+      if (clientId !== provider.awareness.clientID && state.cursor) {
         createCursor(clientId, state);
       }
     });
     
-    // Handle removed users
-    changes.removed.forEach((clientId: number) => {
-      removeCursor(clientId);
+    // Remove cursors for disconnected users
+    changes.forEach((change, clientId) => {
+      if (change.user === null) removeCursor(clientId);
     });
   };
   
   // Set up awareness handler
-  awareness.on('change', awarenessChangeHandler);
+  provider.awareness.on('change', awarenessChangeHandler);
   
   // Set up workspace event listeners if we have access to the DOM
   if (typeof window !== 'undefined') {
-    container.addEventListener('mousemove', onMouseMove);
+    workspace.getInjectionDiv().addEventListener('mousemove', onMouseMove);
     
     // Listen for block drag events
     workspace.addChangeListener((e: any) => {
@@ -805,14 +572,213 @@ export function setupCursorTracking(
     });
     
     // Remove event listeners
-    awareness.off('change', awarenessChangeHandler);
+    provider.awareness.off('change', awarenessChangeHandler);
     
     if (typeof window !== 'undefined') {
-      container.removeEventListener('mousemove', onMouseMove);
+      workspace.getInjectionDiv().removeEventListener('mousemove', onMouseMove);
       window.removeEventListener('resize', resizeHandler);
     }
   };
 }
+
+// Initialize collaboration for a specific room
+export async function initCollaboration(roomId: string, userIdentifier: string, blocklyWorkspace: any, blockly: any): Promise<any> {
+  // Create a new Yjs document
+  const ydoc = new Y.Doc();
+  
+  // Create an awareness instance for this document
+  const awareness = new Awareness(ydoc);
+  
+  // Set the local user state with a random name and color
+  let userName = getRandomName();
+  let userColor = getRandomColor();
+  let userEmail = '';
+  let currentUserId = '';
+  
+  // Get current auth user
+  const currentUser = auth.currentUser;
+  
+  if (currentUser) {
+    userEmail = currentUser.email || '';
+    currentUserId = currentUser.uid;
+    userName = currentUser.displayName || userEmail.split('@')[0] || userName;
+    
+    // Add this room to user's history without blocking
+    addRoomToUserHistory(currentUserId, roomId, roomId).catch(console.error);
+  }
+  
+  // Set awareness state with user information
+  awareness.setLocalState({
+    name: userName,
+    email: userEmail,
+    color: userColor,
+    cursor: null,
+    draggingBlock: null, // Track if user is dragging a block
+  });
+  
+  let wsProvider: WebsocketProvider | null = null;
+  let connected = false;
+  
+  // Try connecting to WebSocket server
+  try {
+    console.log(`Connecting to WebSocket server for room: ${roomId}...`);
+    
+    // Get WebSocket server URL from environment or use fallbacks
+    // In production (Vercel), use the deployed WebSocket server
+    // In development, use the local server
+    let serverUrl = typeof window !== 'undefined' ? 
+      process.env.NEXT_PUBLIC_WEBSOCKET_URL || 'wss://collaborative-blockly-ws.onrender.com' :
+      'ws://localhost:1234';
+      
+    // For local development, fallback to localhost
+    if (process.env.NODE_ENV === 'development') {
+      serverUrl = 'ws://localhost:1234';
+    }
+    
+    console.log(`Using WebSocket server: ${serverUrl}`);
+    
+    // Create WebSocket provider
+    wsProvider = new WebsocketProvider(serverUrl, roomId, ydoc);
+    
+    // Update connections to room with debouncing to reduce Firestore writes
+    let lastUpdate = 0;
+    wsProvider.on('status', (event: { status: 'connecting' | 'connected' | 'disconnected' }) => {
+      const now = Date.now();
+      console.log(`WebSocket status: ${event.status}`);
+      
+      // Only update room state at most once every 30 seconds
+      if (now - lastUpdate > USER_STATUS_DEBOUNCE) {
+        if (event.status === 'connected' && currentUser) {
+          connected = true;
+          // Update room status when connected, but without blocking
+          updateUserRoomActivityThrottled(currentUserId, roomId).catch(console.error);
+          lastUpdate = now;
+        } else if (event.status === 'disconnected') {
+          connected = false;
+        }
+      }
+    });
+    
+    // Handle window unload to cleanly remove user from room
+    if (typeof window !== 'undefined') {
+      window.addEventListener('beforeunload', () => {
+        if (currentUser) {
+          // Use navigator.sendBeacon for more reliable cleanup on page unload
+          const roomUserUrl = `${process.env.NEXT_PUBLIC_API_URL || ''}/api/room-leave?roomId=${roomId}&userId=${currentUser.uid}`;
+          navigator.sendBeacon(roomUserUrl);
+        }
+      });
+    }
+  } catch (error) {
+    console.error('Error connecting to WebSocket server:', error);
+    console.log('Falling back to local-only collaboration');
+  }
+  
+  // Register user presence in Firestore
+  try {
+    // Get user info from authentication
+    const auth = getAuth();
+    let displayName = 'Anonymous';
+    let email = '';
+    
+    if (auth.currentUser) {
+      displayName = auth.currentUser.displayName || getRandomName();
+      email = auth.currentUser.email || '';
+    }
+    
+    // Register user presence in the room
+    registerUserPresence(roomId, userIdentifier, displayName, email);
+    
+    // Also update the userIds array to ensure the user is in the room's user list
+    await updateRoomUserList(roomId, userIdentifier, true);
+  } catch (error) {
+    console.error('Error registering user presence:', error);
+  }
+  
+  return { ydoc, provider: wsProvider, awareness, connected };
+}
+
+// Register user presence in a room
+// Debounced to reduce Firestore writes 
+export const registerUserPresence = debounce(async (roomId: string, userId: string, userName: string, userEmail: string) => {
+  if (!roomId || !userId) return;
+  
+  try {
+    // Check if room exists
+    const roomRef = doc(db, 'rooms', roomId);
+    const roomDoc = await getDoc(roomRef);
+    
+    if (!roomDoc.exists()) {
+      console.error('Room not found');
+      return;
+    }
+    
+    // Update user's last accessed time for this room (throttled)
+    updateUserRoomActivityThrottled(userId, roomId);
+    
+    // Add this user to the room's userIds array if not already there
+    await updateDoc(roomRef, {
+      userIds: arrayUnion(userId),
+      lastActivity: serverTimestamp()
+    });
+    
+    // Store user details in a separate users collection document
+    // This avoids array field manipulation which is expensive in Firestore
+    const userRef = doc(db, 'rooms', roomId, 'users', userId);
+    await setDoc(userRef, {
+      id: userId,
+      name: userName || 'Anonymous',
+      email: userEmail || '',
+      joinedAt: serverTimestamp(),
+      lastActive: serverTimestamp()
+    }, { merge: true });
+    
+    // Clear cache to ensure fresh data
+    clearRoomCache(roomId);
+  } catch (error) {
+    console.error('Error registering user presence:', error);
+  }
+}, 3000); // Debounce to reduce writes - only register once every 3 seconds
+
+/**
+ * Update room user list when a user joins or leaves
+ * @param roomId Room ID
+ * @param userId User ID
+ * @param isPresent Boolean indicating if user is present (true) or left (false)
+ */
+export const updateRoomUserList = async (roomId: string, userId: string, isPresent: boolean): Promise<void> => {
+  if (!roomId || !userId) return;
+
+  try {
+    const roomRef = doc(db, 'rooms', roomId);
+    const roomDoc = await getDoc(roomRef);
+
+    if (!roomDoc.exists()) {
+      console.error(`Room ${roomId} does not exist`);
+      return;
+    }
+
+    // Clear any cached data for this room
+    clearRoomCache(roomId);
+
+    if (isPresent) {
+      // User is present, add to userIds if not already there
+      await updateDoc(roomRef, {
+        userIds: arrayUnion(userId),
+        lastUpdated: serverTimestamp()
+      });
+    } else {
+      // User has left, remove from userIds
+      await updateDoc(roomRef, {
+        userIds: arrayRemove(userId),
+        lastUpdated: serverTimestamp()
+      });
+    }
+  } catch (error) {
+    console.error(`Error updating room user list for room ${roomId}:`, error);
+    // Don't throw to avoid blocking the user from leaving
+  }
+};
 
 // Helper to generate random name for anonymous users
 function getRandomName() {
