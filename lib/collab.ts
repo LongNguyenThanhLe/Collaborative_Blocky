@@ -68,6 +68,57 @@ const handleFirestoreError = (error: any, errorMessage: string) => {
 const roomDataCache = new Map<string, {data: any, timestamp: number, expiry?: number}>();
 
 /**
+ * Creates a new collaborative room and associates it with the user
+ * @param roomName Display name for the room
+ * @param userId ID of the user creating the room
+ * @returns The ID of the newly created room
+ */
+export async function createNewRoom(roomName: string, userId: string): Promise<string> {
+  if (!roomName || !userId) {
+    throw new Error('Room name and user ID are required');
+  }
+  
+  try {
+    // Generate a unique room ID
+    const roomId = `room_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
+    
+    // Create the room document in Firestore
+    const roomRef = doc(db, 'rooms', roomId);
+    const roomData = {
+      roomName,
+      createdAt: serverTimestamp(),
+      createdBy: userId,
+      users: [{
+        userId,
+        joinedAt: serverTimestamp()
+      }],
+      userCount: 1,
+      lastActivity: serverTimestamp()
+    };
+    
+    await setDoc(roomRef, roomData);
+    
+    // Associate room with user in user's rooms collection
+    const userRoomRef = doc(db, 'users', userId, 'rooms', roomId);
+    await setDoc(userRoomRef, {
+      roomId,
+      roomName,
+      lastAccessed: serverTimestamp(),
+      role: 'owner',
+      createdAt: serverTimestamp()
+    });
+    
+    // Clear user rooms cache to force refresh
+    userRoomsCache.delete(userId);
+    
+    return roomId;
+  } catch (error) {
+    handleFirestoreError(error, 'Error creating new room:');
+    throw error;
+  }
+}
+
+/**
  * Get room data with caching to reduce Firestore reads
  */
 export async function getCachedRoomData(roomId: string) {
