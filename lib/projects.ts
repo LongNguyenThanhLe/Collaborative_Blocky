@@ -109,11 +109,43 @@ export async function createProject(
     // Clear cache
     userProjectsCache.delete(currentUser.uid);
     
+    // Also clear room caches if we're creating a project with a room association
+    if (roomId) {
+      try {
+        // Import only the clearRoomCache function to avoid circular dependencies
+        const { clearRoomCache } = await import('./collab');
+        
+        // Clear the specific room cache
+        clearRoomCache(roomId);
+        
+        // Signal that user rooms need to be refreshed
+        // This is safer than directly accessing another module's cache
+        await updateUserRoomCache(currentUser.uid, roomId);
+      } catch (error) {
+        console.warn('Could not clear room cache:', error);
+      }
+    }
+    
     // Return created project
     return project;
   } catch (error) {
     console.error('Error creating project:', error);
     throw error;
+  }
+}
+
+// Helper function to update user room cache
+// This avoids direct access to the userRoomsCache in collab.ts
+async function updateUserRoomCache(userId: string, roomId: string): Promise<void> {
+  try {
+    // Create/update a marker in the user's data to indicate cache refresh needed
+    const userRef = doc(db, 'users', userId);
+    await updateDoc(userRef, {
+      cacheInvalidatedAt: serverTimestamp(),
+      lastModifiedRoom: roomId
+    });
+  } catch (error) {
+    console.warn('Failed to mark user room cache for refresh:', error);
   }
 }
 

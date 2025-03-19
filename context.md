@@ -97,6 +97,13 @@ BlocklyCollab is an enhanced version of Google's Blockly programming environment
     - Enhanced error handling throughout collaboration functions to provide better debugging
     - Fixed TypeScript type errors in the array handling for better type safety
     - Refactored initCollaboration for better error handling and to properly pass Blockly instance
+  - Improved cache invalidation system for rooms and projects:
+    - Fixed issue where newly created rooms wouldn't appear in user's room list until cache expired
+    - Added cross-module cache invalidation between projects and rooms
+    - Implemented Firestore-based cache invalidation markers to ensure UI consistency
+    - Enhanced getUserRooms function to check for cache invalidation markers before using cached data
+    - Added proper cleanup of cached state when creating new resources
+    - Improved WebSocket connection handling with simplified room ID format
 
 ## Firebase Optimization
 - Implemented in-memory cache for room data with 5-minute expiry

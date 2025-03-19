@@ -172,14 +172,39 @@ const updateUserRoomActivityThrottled = throttle(async (userId: string, roomId: 
 
 // Get user rooms with caching
 export async function getUserRooms(userId: string) {
-  // Check cache first
-  const cachedRooms = userRoomsCache.get(userId);
-  if (cachedRooms && isCacheValid(cachedRooms)) {
-    console.log('Using cached user rooms for', userId);
-    return cachedRooms.data;
-  }
-  
   try {
+    // First check if the user has a cache invalidation marker
+    const userRef = doc(db, 'users', userId);
+    const userDoc = await getDoc(userRef);
+    
+    if (userDoc.exists()) {
+      const userData = userDoc.data();
+      const cacheInvalidatedAt = userData?.cacheInvalidatedAt;
+      
+      // If we have a cached entry, check if it needs to be invalidated
+      const cachedRooms = userRoomsCache.get(userId);
+      if (cachedRooms && cacheInvalidatedAt) {
+        // Convert Firestore timestamp to milliseconds for comparison
+        const invalidationTime = 
+          cacheInvalidatedAt instanceof Timestamp 
+            ? cacheInvalidatedAt.toMillis() 
+            : cacheInvalidatedAt?.seconds ? cacheInvalidatedAt.seconds * 1000 : 0;
+            
+        // If cache was created before invalidation, clear it
+        if (invalidationTime > cachedRooms.timestamp) {
+          console.log('Cache invalidated, clearing user rooms cache for', userId);
+          userRoomsCache.delete(userId);
+        }
+      }
+    }
+  
+    // Check cache after potential invalidation check
+    const cachedRooms = userRoomsCache.get(userId);
+    if (cachedRooms && isCacheValid(cachedRooms)) {
+      console.log('Using cached user rooms for', userId);
+      return cachedRooms.data;
+    }
+  
     console.log('Fetching user rooms from Firestore for', userId);
     const roomsRef = collection(db, 'users', userId, 'rooms');
     const roomsQuery = query(roomsRef);
@@ -259,6 +284,9 @@ export async function createNewRoom(roomName: string, userId: string): Promise<s
     // Clear any cached room data
     clearRoomCache(roomId);
     
+    // Also clear the user's rooms cache so they immediately see the new room
+    userRoomsCache.delete(userId);
+    
     return roomId;
   } catch (error) {
     console.error('Error creating new room:', error);
@@ -276,7 +304,27 @@ export function setupBlocklySync(workspace: any, ydoc: Y.Doc, options?: {blockly
   }
   
   // Safely access Blockly methods
-  const BlocklyXml = Blockly.Xml || (Blockly as any).Xml;
+  const getBlocklyXml = (blockly: any) => {
+    if (!blockly) return null;
+    
+    // Try different ways to access Blockly.Xml
+    // This handles various ways Blockly might be bundled in production
+    if (blockly.Xml && typeof blockly.Xml.workspaceToDom === 'function') {
+      return blockly.Xml;
+    } else if ((blockly as any).Xml && typeof (blockly as any).Xml.workspaceToDom === 'function') {
+      return (blockly as any).Xml;
+    } else if (typeof window !== 'undefined' && (window as any).Blockly && (window as any).Blockly.Xml) {
+      return (window as any).Blockly.Xml;
+    } else if (blockly.module && blockly.module.exports && blockly.module.exports.Xml) {
+      // Handle CommonJS pattern
+      return blockly.module.exports.Xml;
+    }
+    
+    console.error('Unable to find Blockly.Xml methods in any expected location');
+    return null;
+  };
+
+  const BlocklyXml = getBlocklyXml(Blockly);
   if (!BlocklyXml || typeof BlocklyXml.workspaceToDom !== 'function' || typeof BlocklyXml.domToText !== 'function') {
     console.error('Blockly.Xml methods not found. This can happen in production builds if Blockly is not properly imported.');
     return () => {};
@@ -296,74 +344,99 @@ export function setupBlocklySync(workspace: any, ydoc: Y.Doc, options?: {blockly
     }
   }
   
-  // Apply initial shared state if it exists
-  if (sharedBlocks.get('current') && workspace) {
-    try {
-      // Safely access text to DOM conversion
-      if (typeof BlocklyXml.textToDom !== 'function') {
-        console.error('Blockly.Xml.textToDom is not available. Unable to apply shared state.');
-      } else {
-        const xml = BlocklyXml.textToDom(sharedBlocks.get('current'));
-        BlocklyXml.clearWorkspaceAndLoadFromXml(xml, workspace);
-      }
-    } catch (error) {
-      console.error('Error applying initial shared state:', error);
-    }
-  }
-  
-  // Set up change listener on the workspace
-  const changeListener = function(event: any) {
-    // Only sync when we have events that change the workspace content
-    if (event.type === Blockly.Events.BLOCK_CREATE ||
-        event.type === Blockly.Events.BLOCK_DELETE ||
-        event.type === Blockly.Events.BLOCK_CHANGE ||
-        event.type === Blockly.Events.BLOCK_MOVE) {
-      try {
-        // Get current workspace as XML and update the shared doc
-        const xml = BlocklyXml.workspaceToDom(workspace);
-        const xmlString = BlocklyXml.domToText(xml);
-        sharedBlocks.set('current', xmlString);
-      } catch (error) {
-        console.error('Error syncing workspace:', error);
-      }
-    }
-  };
-  
-  // Listen for changes in the workspace
-  workspace.addChangeListener(changeListener);
-  
-  // Listen for changes in the shared doc
-  const observer = (event: Y.YMapEvent<any>) => {
-    // Only apply changes from other users, not our own changes
+  // Observable for changes in the shared blocks
+  const blockObserver = (event: Y.YMapEvent<any>) => {
+    // Skip if we're the one making the change
     if (event.transaction.local) return;
-    
-    try {
-      // Get the XML from the shared doc and apply to workspace
-      const xmlString = sharedBlocks.get('current');
-      if (xmlString && typeof BlocklyXml.textToDom === 'function') {
-        const xml = BlocklyXml.textToDom(xmlString);
-        
-        // Temporarily disable the change listener to prevent looping
-        workspace.removeChangeListener(changeListener);
-        
-        // Clear and load the workspace
-        BlocklyXml.clearWorkspaceAndLoadFromXml(xml, workspace);
-        
-        // Re-enable the change listener
-        workspace.addChangeListener(changeListener);
+
+    // Get the new XML content from the event
+    if (event.changes.keys.has('current')) {
+      try {
+        const xmlString = sharedBlocks.get('current');
+        if (!xmlString || !workspace) return;
+
+        // Safely access Blockly XML methods with multiple fallbacks
+        if (BlocklyXml && typeof BlocklyXml.textToDom === 'function') {
+          const dom = BlocklyXml.textToDom(xmlString);
+          
+          // Carefully apply the changes to avoid disrupting the workspace
+          workspace.setResizesEnabled(false); // temporarily disable resizes
+          
+          try {
+            // Clear the workspace and load new content
+            workspace.clear();
+            if (typeof BlocklyXml.domToWorkspace === 'function') {
+              BlocklyXml.domToWorkspace(dom, workspace);
+            }
+          } finally {
+            workspace.setResizesEnabled(true); // re-enable resizes
+          }
+        } else if (typeof window !== 'undefined' && 
+                   (window as any).Blockly && 
+                   (window as any).Blockly.Xml) {
+          // Alternative: try using global Blockly object if available
+          const dom = (window as any).Blockly.Xml.textToDom(xmlString);
+          workspace.setResizesEnabled(false);
+          try {
+            workspace.clear();
+            (window as any).Blockly.Xml.domToWorkspace(dom, workspace);
+          } finally {
+            workspace.setResizesEnabled(true);
+          }
+        } else {
+          console.error('Cannot apply changes: Blockly.Xml methods not available');
+        }
+      } catch (error) {
+        console.error('Error applying workspace changes:', error);
       }
-    } catch (error) {
-      console.error('Error applying shared changes:', error);
     }
   };
   
   // Observe changes to the shared blocks
-  sharedBlocks.observe(observer);
+  sharedBlocks.observe(blockObserver);
+  
+  // Update shared state when the workspace changes
+  const workspaceChangeListener = (event: any) => {
+    // Skip UI events and those caused by workspace loading
+    if (event.type === 'ui' || event.isUiEvent || workspace.isDragging()) {
+      return;
+    }
+
+    try {
+      // Only update if BlocklyXml is available and workspace exists
+      if (BlocklyXml && typeof BlocklyXml.workspaceToDom === 'function' && workspace) {
+        const dom = BlocklyXml.workspaceToDom(workspace);
+        
+        // Make sure we can convert DOM to text
+        if (typeof BlocklyXml.domToText === 'function') {
+          const text = BlocklyXml.domToText(dom);
+          // Update shared state without triggering our own observer
+          sharedBlocks.set('current', text);
+        } else if (typeof window !== 'undefined' && 
+                  (window as any).Blockly && 
+                  (window as any).Blockly.Xml && 
+                  typeof (window as any).Blockly.Xml.domToText === 'function') {
+          // Try using global Blockly if available
+          const text = (window as any).Blockly.Xml.domToText(dom);
+          sharedBlocks.set('current', text);
+        } else {
+          console.warn('Cannot update shared blocks: Blockly.Xml.domToText not available');
+        }
+      } else {
+        console.warn('Cannot update shared blocks: Blockly.Xml.workspaceToDom not available');
+      }
+    } catch (error) {
+      console.error('Error updating shared blocks:', error);
+    }
+  };
+  
+  // Set up change listener on the workspace
+  workspace.addChangeListener(workspaceChangeListener);
   
   // Return cleanup function
   return () => {
-    workspace.removeChangeListener(changeListener);
-    sharedBlocks.unobserve(observer);
+    workspace.removeChangeListener(workspaceChangeListener);
+    sharedBlocks.unobserve(blockObserver);
   };
 }
 
@@ -757,9 +830,11 @@ export async function initCollaboration(
     let provider: WebsocketProvider | null = null;
     
     try {
+      // Simplify the room ID format - don't add extra prefixes
+      // as the server might not expect it
       provider = new WebsocketProvider(
         websocketUrl,
-        `blockly-room-${roomId}`,
+        roomId, // Use just the room ID without additional prefixes
         ydoc,
         { connect: true }
       );

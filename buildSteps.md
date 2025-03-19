@@ -111,6 +111,17 @@ This document tracks the progress of the BlocklyCollab application from start to
 - Added fallback approaches for coordinate transformations between workspace and screen
 - Improved compatibility between development and production Blockly API differences
 
+## Current Progress: Improved Cache Invalidation System
+- Fixed issue where newly created rooms wouldn't appear in user's room list until cache expired
+- Implemented cross-module cache invalidation between projects and rooms
+- Added Firestore-based cache invalidation markers to ensure consistent UI state
+- Enhanced getUserRooms function to check for invalidation markers before using cached data
+- Fixed communication between room and project systems to maintain consistent state
+- Improved WebSocket connection handling with simplified room ID format
+- Added proper cleanup of cached state when creating new resources
+- Reduced unnecessary Firestore reads while ensuring data freshness
+- Implemented a timestamp-based cache invalidation strategy for better consistency
+
 ## Current Progress: Recent Changes and Fixes
 - Added comprehensive error handling to protect users from unexpected crashes
 - Implemented proper file management system in the dashboard
