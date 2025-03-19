@@ -65,7 +65,7 @@ const handleFirestoreError = (error: any, errorMessage: string) => {
 };
 
 // Cache for room data to reduce Firestore reads
-const roomDataCache = new Map<string, {data: any, timestamp: number}>();
+const roomDataCache = new Map<string, {data: any, timestamp: number, expiry?: number}>();
 
 /**
  * Get room data with caching to reduce Firestore reads
