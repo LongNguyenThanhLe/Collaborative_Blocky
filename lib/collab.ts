@@ -830,16 +830,20 @@ export async function initCollaboration(
     let provider: WebsocketProvider | null = null;
     
     try {
-      // Simplify the room ID format - don't add extra prefixes
-      // as the server might not expect it
+      // Format the room ID to be compatible with the WebSocket server
+      // Remove the room_ prefix if it exists as the server may not expect it
+      const formattedRoomId = roomId.startsWith('room_') 
+        ? roomId.substring(5) // Remove 'room_' prefix
+        : roomId;
+        
       provider = new WebsocketProvider(
         websocketUrl,
-        roomId, // Use just the room ID without additional prefixes
+        formattedRoomId, // Use the formatted room ID for WebSocket connection
         ydoc,
         { connect: true }
       );
       
-      console.log('WebSocket provider initialized');
+      console.log('WebSocket provider initialized with room ID:', formattedRoomId);
     } catch (error) {
       console.error('Error creating WebSocket provider:', error);
     }
