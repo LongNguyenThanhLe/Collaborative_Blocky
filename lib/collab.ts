@@ -205,6 +205,40 @@ export async function getUserRooms(userId: string) {
 }
 
 /**
+ * Get active users in a specific room
+ * @param roomId ID of the room to get users for
+ * @returns Array of user objects in the room
+ */
+export async function getRoomUsers(roomId: string): Promise<any[]> {
+  if (!roomId) return [];
+  
+  try {
+    // Get room data from cache or Firestore
+    const roomData = await getCachedRoomData(roomId);
+    
+    if (roomData && roomData.users) {
+      // Return users array from room data
+      return roomData.users || [];
+    }
+    
+    // If room data doesn't have users array, try to get directly from room document
+    const roomRef = doc(db, 'rooms', roomId);
+    const roomSnapshot = await getDoc(roomRef);
+    
+    if (roomSnapshot.exists()) {
+      const data = roomSnapshot.data();
+      return data.users || [];
+    }
+    
+    return [];
+  } catch (error) {
+    handleFirestoreError(error, 'Error getting room users:');
+    // Return empty array in case of error
+    return [];
+  }
+}
+
+/**
  * Update room user list with throttling to reduce writes
  */
 export async function updateRoomUserList(roomId: string, userId: string, isJoining: boolean, userName: string = 'Anonymous User') {
