@@ -41,15 +41,37 @@ BlocklyCollab is an enhanced version of Google's Blockly programming environment
   - Added native auth forms with Firebase integration
   - Implemented client-side auth state management
   - Updated UI for user identification and sign-out in workspace
+- **2025-03-19**: 
+  - Completely removed Clerk authentication from the application
+  - Implemented Firebase authentication with email/password and Google sign-in
+  - Updated login and signup pages with Google authentication buttons
+  - Enhanced collaboration features with user identification
+  - Added proper auth state management through Firebase
+  - Updated middleware to handle Firebase authentication
+  - Improved documentation for environment setup
+  - Applied styling updates for authentication UI
 
 ## Environment Variables
-- Firebase configuration variables for Firestore
+- Firebase configuration variables for auth and Firestore:
   - NEXT_PUBLIC_FIREBASE_API_KEY
   - NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN
   - NEXT_PUBLIC_FIREBASE_PROJECT_ID
   - NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET
   - NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID
   - NEXT_PUBLIC_FIREBASE_APP_ID
+
+## Google Authentication Setup
+For Google authentication to work properly:
+1. Enable Google as an authentication provider in Firebase Console
+2. Configure OAuth consent screen in Google Cloud Console
+3. Add authorized domains for authentication redirects
+4. No additional environment variables are needed beyond the standard Firebase config
+
+## Authentication Flow
+1. Users can sign up/login with email/password or Google account
+2. Authentication state is managed through Firebase Auth and React Context
+3. Protected routes redirect unauthenticated users to login page
+4. User information is used to identify collaborators in the workspace
 
 ## Deployment
 The application is deployed on Vercel with custom domain configuration. Firebase environment variables need to be set in the Vercel project settings.

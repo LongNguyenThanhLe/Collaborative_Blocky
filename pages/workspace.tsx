@@ -1,69 +1,77 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import Head from 'next/head';
 import { useRouter } from 'next/router';
-import styles from '../styles/Workspace.module.css';
 import BlocklyWorkspace from '../components/BlocklyWorkspace';
+import styles from '../styles/Workspace.module.css';
+import { FaPuzzlePiece, FaSignOutAlt, FaUser } from 'react-icons/fa';
 import { useAuth } from '../contexts/AuthContext';
-import { logOut } from '../lib/firebase';
-import { FaSignOutAlt, FaUser } from 'react-icons/fa';
 
 export default function Workspace() {
-  const { user, loading } = useAuth();
+  const { user, loading, signOutUser } = useAuth();
   const router = useRouter();
-  
-  // Redirect to login if not authenticated
+  const [isClient, setIsClient] = useState(false);
+
   useEffect(() => {
+    // This runs only on client-side
+    setIsClient(true);
+
+    // Redirect to login if not authenticated
     if (!loading && !user) {
       router.push('/login');
     }
   }, [user, loading, router]);
-  
-  const handleSignOut = async () => {
-    await logOut();
-    router.push('/');
-  };
-  
-  // Show loading state while checking authentication
-  if (loading) {
+
+  // Early return while checking authentication and during server-side rendering
+  if (loading || !isClient) {
     return (
       <div className={styles.loadingContainer}>
-        <div className={styles.loadingSpinner}></div>
+        <div className={styles.loadingSpinner} />
         <p>Loading workspace...</p>
       </div>
     );
   }
-  
-  // Only render workspace if user is authenticated
+
+  // If not authenticated after checking, don't render the content
   if (!user) {
-    return null; // Will redirect to login via the useEffect
+    return null;
   }
-  
+
   return (
-    <div className={styles.workspaceContainer}>
+    <div className={styles.container}>
       <Head>
-        <title>BlocklyCollab Workspace</title>
-        <meta name="description" content="BlocklyCollab programming workspace - Build and collaborate on code" />
+        <title>Workspace | BlocklyCollab</title>
+        <meta name="description" content="Collaborative block programming workspace" />
       </Head>
 
       <header className={styles.header}>
-        <div className={styles.headerLeft}>
-          <h1 className={styles.title}>BlocklyCollab</h1>
-          <span className={styles.divider}>|</span>
-          <span className={styles.projectName}>My Project</span>
+        <div className={styles.logo}>
+          <FaPuzzlePiece className={styles.logoIcon} />
+          <span>BlocklyCollab</span>
         </div>
-        <div className={styles.headerRight}>
-          <div className={styles.userInfo}>
+        
+        <div className={styles.userInfo}>
+          <div className={styles.userProfile}>
             <FaUser className={styles.userIcon} />
-            <span className={styles.userEmail}>{user.email}</span>
+            <span>{user.email || 'User'}</span>
           </div>
-          <button onClick={handleSignOut} className={styles.signOutButton}>
+          
+          <button 
+            className={styles.signOutButton} 
+            onClick={signOutUser}
+            aria-label="Sign out"
+          >
             <FaSignOutAlt /> Sign Out
           </button>
         </div>
       </header>
 
-      <main className={styles.main}>
-        <BlocklyWorkspace />
+      <main className={styles.mainContent}>
+        {isClient && (
+          <BlocklyWorkspace 
+            userId={user.uid}
+            userEmail={user.email || 'anonymous'}
+          />
+        )}
       </main>
     </div>
   );

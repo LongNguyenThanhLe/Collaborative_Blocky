@@ -5,12 +5,16 @@ import { initCollaboration, setupBlocklySync, setupCursorTracking } from '../lib
 
 interface BlocklyWorkspaceProps {
   roomId?: string;
+  userId?: string;
+  userEmail?: string;
   onConnectionStatusChange?: (status: string, connected?: boolean) => void;
   onUserCountChange?: (count: number) => void;
 }
 
 const BlocklyWorkspace: React.FC<BlocklyWorkspaceProps> = ({ 
   roomId = 'default-room',
+  userId = 'anonymous',
+  userEmail = 'anonymous@example.com',
   onConnectionStatusChange,
   onUserCountChange
 }) => {
@@ -244,7 +248,7 @@ const BlocklyWorkspace: React.FC<BlocklyWorkspaceProps> = ({
               newWorkspace,
               ydoc,
               awareness,
-              { name: `User ${Math.floor(Math.random() * 1000)}` }
+              { name: userEmail || `User ${Math.floor(Math.random() * 1000)}` }
             );
           }
           

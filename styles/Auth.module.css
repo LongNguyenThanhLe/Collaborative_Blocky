@@ -58,10 +58,6 @@
   width: 100%;
   max-width: 400px;
   margin: 0 auto;
-  /* Clerk components will use their own styling */
-  /* These styles help the container fit within our design */
-  --clerk-primary: #4285F4;
-  --clerk-primary-hover: #3367D6;
 }
 
 .authForm {
@@ -164,23 +160,55 @@
 .divider {
   display: flex;
   align-items: center;
-  margin: 1.5rem 0;
-  color: #aaa;
+  text-align: center;
+  margin: 20px 0;
+  color: #777;
 }
 
 .divider::before,
 .divider::after {
-  content: "";
+  content: '';
   flex: 1;
-  border-bottom: 1px solid #eee;
+  border-bottom: 1px solid #ddd;
 }
 
-.divider::before {
-  margin-right: 1rem;
+.divider span {
+  padding: 0 10px;
+  font-size: 14px;
 }
 
-.divider::after {
-  margin-left: 1rem;
+.googleButton {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  padding: 0.75rem 1rem;
+  background-color: white;
+  color: #444;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  font-size: 1rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background-color 0.2s ease;
+  margin-bottom: 1rem;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+}
+
+.googleButton:hover {
+  background-color: #f8f8f8;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.12);
+}
+
+.googleButton:disabled {
+  opacity: 0.7;
+  cursor: not-allowed;
+}
+
+.googleIcon {
+  margin-right: 10px;
+  font-size: 18px;
+  color: #4285F4;
 }
 
 .socialButtons {
@@ -219,17 +247,6 @@
   padding: 20px;
   text-align: center;
   font-weight: 500;
-}
-
-/* Custom styles for Clerk UI to ensure it displays well */
-.clerkContainer :global(.cl-card) {
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1) !important;
-  border-radius: 8px !important;
-  overflow: hidden !important;
-}
-
-.clerkContainer :global(.cl-formButtonPrimary) {
-  background-color: #4285F4 !important;
 }
 
 @media (max-width: 500px) {

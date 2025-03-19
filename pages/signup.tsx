@@ -2,9 +2,9 @@ import Head from 'next/head';
 import Link from 'next/link';
 import { useRouter } from 'next/router';
 import styles from '../styles/Auth.module.css';
-import { FaPuzzlePiece } from 'react-icons/fa';
+import { FaPuzzlePiece, FaGoogle } from 'react-icons/fa';
 import { useState } from 'react';
-import { signUp } from '../lib/firebase';
+import { signUp, signInWithGoogle } from '../lib/firebase';
 
 export default function Signup() {
   const [email, setEmail] = useState('');
@@ -31,6 +31,21 @@ export default function Signup() {
     }
     
     const result = await signUp(email, password);
+    
+    if (result.error) {
+      setError(result.error);
+      setLoading(false);
+    } else {
+      // Redirect to workspace on successful signup
+      router.push('/workspace');
+    }
+  };
+  
+  const handleGoogleSignIn = async () => {
+    setLoading(true);
+    setError('');
+    
+    const result = await signInWithGoogle();
     
     if (result.error) {
       setError(result.error);
@@ -101,6 +116,19 @@ export default function Signup() {
               {loading ? 'Creating Account...' : 'Sign Up'}
             </button>
           </form>
+          
+          <div className={styles.divider}>
+            <span>or</span>
+          </div>
+          
+          <button 
+            onClick={handleGoogleSignIn} 
+            className={styles.googleButton}
+            disabled={loading}
+          >
+            <FaGoogle className={styles.googleIcon} />
+            Sign up with Google
+          </button>
           
           <div className={styles.authFooter}>
             Already have an account?{' '}

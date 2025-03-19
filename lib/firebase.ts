@@ -1,7 +1,17 @@
 // Firebase configuration
 import { initializeApp, getApps, FirebaseApp } from "firebase/app";
 import { getFirestore, Firestore } from "firebase/firestore";
-import { getAuth, Auth, onAuthStateChanged, User, signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut } from "firebase/auth";
+import { 
+  getAuth, 
+  Auth, 
+  onAuthStateChanged, 
+  User, 
+  signInWithEmailAndPassword, 
+  createUserWithEmailAndPassword, 
+  signOut,
+  GoogleAuthProvider,
+  signInWithPopup
+} from "firebase/auth";
 
 // Your web app's Firebase configuration
 // For Firebase JS SDK v7.20.0 and later, measurementId is optional
@@ -18,6 +28,7 @@ const firebaseConfig = {
 let app: FirebaseApp;
 let db: Firestore;
 let auth: Auth;
+let googleProvider: GoogleAuthProvider;
 
 try {
   // Check if Firebase has been initialized
@@ -33,6 +44,12 @@ try {
   // Initialize Authentication
   auth = getAuth(app);
   
+  // Initialize Google Auth Provider
+  googleProvider = new GoogleAuthProvider();
+  googleProvider.setCustomParameters({
+    prompt: 'select_account'
+  });
+  
   console.log("Firebase initialized successfully");
 } catch (error) {
   console.error("Error initializing Firebase:", error);
@@ -43,12 +60,14 @@ try {
     app = getApps().length > 0 ? getApps()[0] : initializeApp(firebaseConfig);
     db = getFirestore(app);
     auth = getAuth(app);
+    googleProvider = new GoogleAuthProvider();
   } catch (e) {
     // If we can't initialize Firebase at all, create app objects to prevent crashes
     console.error("Critical Firebase initialization failure:", e);
     app = {} as FirebaseApp;
     db = {} as Firestore;
     auth = {} as Auth;
+    googleProvider = {} as GoogleAuthProvider;
   }
 }
 
@@ -68,6 +87,16 @@ export const signUp = async (email: string, password: string) => {
     return { user: userCredential.user, error: null };
   } catch (error: any) {
     return { user: null, error: error.message || 'Sign up failed' };
+  }
+};
+
+// Google sign-in
+export const signInWithGoogle = async () => {
+  try {
+    const result = await signInWithPopup(auth, googleProvider);
+    return { user: result.user, error: null };
+  } catch (error: any) {
+    return { user: null, error: error.message || 'Google sign in failed' };
   }
 };
 
@@ -99,4 +128,4 @@ service cloud.firestore {
 }
 */
 
-export { app, db, auth };
+export { app, db, auth, googleProvider };
