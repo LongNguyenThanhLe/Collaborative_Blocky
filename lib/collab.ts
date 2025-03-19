@@ -836,21 +836,23 @@ export async function initCollaboration(
       const formattedRoomId = roomId.startsWith('room_') 
         ? roomId.substring(5) // Remove 'room_' prefix
         : roomId;
+      
+      // Log connection attempt details for debugging
+      console.log('Attempting WebSocket connection with:', {
+        baseUrl: websocketUrl,
+        roomId: formattedRoomId,
+        fullUrl: `${websocketUrl}/${formattedRoomId}`
+      });
         
-      // For production, the WebSocketProvider may ignore paths in the base URL 
-      // and simply append the room ID to the domain
-      // Instead, we'll use the room name format that includes the path
-      const isProduction = process.env.NODE_ENV === 'production';
-      const finalRoomId = isProduction ? `yjs/${formattedRoomId}` : formattedRoomId;
-        
+      // Try connecting without any path prefix first - this is likely what the server expects
       provider = new WebsocketProvider(
         websocketUrl,
-        finalRoomId, // Include the path in the room ID if needed
+        formattedRoomId,
         ydoc,
         { connect: true }
       );
       
-      console.log('WebSocket provider initialized with room ID:', finalRoomId);
+      console.log('WebSocket provider initialized with room ID:', formattedRoomId);
     } catch (error) {
       console.error('Error creating WebSocket provider:', error);
     }
