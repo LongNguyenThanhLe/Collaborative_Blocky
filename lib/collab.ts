@@ -399,4 +399,339 @@ export async function initCollaboration(roomId: string): Promise<CollabSetup> {
   return { ydoc, provider: wsProvider, awareness, connected };
 }
 
-// ... rest of the code remains the same ...
+/**
+ * Sets up Blockly workspace synchronization with Yjs
+ * @param workspace Blockly workspace instance
+ * @param ydoc Yjs document
+ * @returns Cleanup function
+ */
+export function setupBlocklySync(workspace: any, ydoc: Y.Doc) {
+  // Create a shared XML map in the Yjs document
+  const sharedBlocks = ydoc.getMap('blocks');
+  
+  // Initialize with current workspace if the shared document is empty
+  if (sharedBlocks.size === 0 && workspace) {
+    try {
+      const xml = Blockly.Xml.workspaceToDom(workspace);
+      const xmlString = Blockly.Xml.domToText(xml);
+      sharedBlocks.set('current', xmlString);
+    } catch (error) {
+      console.error('Error initializing shared blocks:', error);
+    }
+  }
+  
+  // Apply initial shared state if it exists
+  if (sharedBlocks.get('current') && workspace) {
+    try {
+      const xml = Blockly.Xml.textToDom(sharedBlocks.get('current'));
+      Blockly.Xml.clearWorkspaceAndLoadFromXml(xml, workspace);
+    } catch (error) {
+      console.error('Error applying initial shared state:', error);
+    }
+  }
+  
+  // Set up change listener on the workspace
+  const changeListener = function(event: any) {
+    // Only sync when we have events that change the workspace content
+    if (event.type === Blockly.Events.BLOCK_CREATE ||
+        event.type === Blockly.Events.BLOCK_DELETE ||
+        event.type === Blockly.Events.BLOCK_CHANGE ||
+        event.type === Blockly.Events.BLOCK_MOVE) {
+      try {
+        // Get current workspace as XML and update the shared doc
+        const xml = Blockly.Xml.workspaceToDom(workspace);
+        const xmlString = Blockly.Xml.domToText(xml);
+        sharedBlocks.set('current', xmlString);
+      } catch (error) {
+        console.error('Error syncing workspace:', error);
+      }
+    }
+  };
+  
+  // Listen for changes in the workspace
+  workspace.addChangeListener(changeListener);
+  
+  // Listen for changes in the shared doc
+  const observer = (event: Y.YMapEvent<any>) => {
+    // Only apply changes from other users, not our own changes
+    if (event.transaction.local) return;
+    
+    try {
+      // Get the XML from the shared doc and apply to workspace
+      const xmlString = sharedBlocks.get('current');
+      if (xmlString) {
+        const xml = Blockly.Xml.textToDom(xmlString);
+        
+        // Temporarily disable the change listener to prevent looping
+        workspace.removeChangeListener(changeListener);
+        
+        // Clear and load the workspace
+        Blockly.Xml.clearWorkspaceAndLoadFromXml(xml, workspace);
+        
+        // Re-enable the change listener
+        workspace.addChangeListener(changeListener);
+      }
+    } catch (error) {
+      console.error('Error applying shared changes:', error);
+    }
+  };
+  
+  // Observe changes to the shared blocks
+  sharedBlocks.observe(observer);
+  
+  // Return cleanup function
+  return () => {
+    workspace.removeChangeListener(changeListener);
+    sharedBlocks.unobserve(observer);
+  };
+}
+
+/**
+ * Sets up cursor tracking and visualization between users
+ * @param workspace Blockly workspace instance
+ * @param awareness Y.js awareness instance for presence
+ * @returns Cleanup function
+ */
+export function setupCursorTracking(workspace: any, awareness: Awareness) {
+  // Map to store cursor elements for each user
+  const cursors = new Map();
+  
+  // Create and add a cursor element for a user
+  const createCursor = (clientId: number, state: any) => {
+    // Don't create cursor for current user
+    if (clientId === awareness.clientID) return;
+    
+    // Remove existing cursor if any
+    removeCursor(clientId);
+    
+    if (!state.cursor) return;
+    
+    try {
+      // Create cursor element
+      const cursorEl = document.createElement('div');
+      cursorEl.className = 'blockly-cursor';
+      cursorEl.style.position = 'absolute';
+      cursorEl.style.width = '8px';
+      cursorEl.style.height = '16px';
+      cursorEl.style.backgroundColor = state.color || '#ff0000';
+      cursorEl.style.zIndex = '100';
+      cursorEl.style.pointerEvents = 'none';
+      
+      // Add user label
+      const label = document.createElement('div');
+      label.className = 'blockly-cursor-label';
+      label.textContent = state.name || 'User';
+      label.style.position = 'absolute';
+      label.style.bottom = '16px';
+      label.style.left = '0';
+      label.style.backgroundColor = state.color || '#ff0000';
+      label.style.color = '#ffffff';
+      label.style.padding = '2px 4px';
+      label.style.borderRadius = '2px';
+      label.style.fontSize = '12px';
+      label.style.whiteSpace = 'nowrap';
+      
+      cursorEl.appendChild(label);
+      
+      // Add to workspace
+      const blocklyDiv = workspace.getInjectionDiv();
+      blocklyDiv.appendChild(cursorEl);
+      
+      // Store cursor element
+      cursors.set(clientId, { element: cursorEl, state });
+      
+      // Update cursor position based on state
+      updateCursorPosition(clientId);
+    } catch (error) {
+      console.error('Error creating cursor:', error);
+    }
+  };
+  
+  // Remove a cursor element
+  const removeCursor = (clientId: number) => {
+    const cursor = cursors.get(clientId);
+    if (cursor && cursor.element) {
+      cursor.element.remove();
+    }
+    cursors.delete(clientId);
+  };
+  
+  // Update cursor position based on workspace coordinates
+  const updateCursorPosition = (clientId: number) => {
+    const cursor = cursors.get(clientId);
+    if (!cursor || !cursor.state.cursor) return;
+    
+    try {
+      const workspaceCoordinate = new Blockly.utils.Coordinate(
+        cursor.state.cursor.x,
+        cursor.state.cursor.y
+      );
+      
+      // Convert from workspace coordinates to screen coordinates
+      const screenCoordinate = workspace.workspaceToPixels(workspaceCoordinate);
+      
+      // Update cursor position
+      cursor.element.style.left = `${screenCoordinate.x}px`;
+      cursor.element.style.top = `${screenCoordinate.y}px`;
+      
+      // If the user is dragging a block, show visual indicator
+      if (cursor.state.draggingBlock) {
+        cursor.element.classList.add('dragging-block');
+      } else {
+        cursor.element.classList.remove('dragging-block');
+      }
+    } catch (error) {
+      console.error('Error updating cursor position:', error);
+    }
+  };
+  
+  // Track local mouse movements and update awareness
+  const onMouseMove = (e: any) => {
+    // Convert screen position to workspace coordinates
+    const screenPosition = new Blockly.utils.Coordinate(e.clientX, e.clientY);
+    const svgPoint = workspace.getinjectionDiv().createSVGPoint();
+    svgPoint.x = screenPosition.x;
+    svgPoint.y = screenPosition.y;
+    
+    try {
+      // Get position in workspace coordinates
+      const matrix = workspace.getCanvas().getScreenCTM().inverse();
+      const workspacePosition = svgPoint.matrixTransform(matrix);
+      
+      // Update local state in awareness
+      const localState = awareness.getLocalState();
+      if (localState) {
+        awareness.setLocalState({
+          ...localState,
+          cursor: {
+            x: workspacePosition.x,
+            y: workspacePosition.y
+          }
+        });
+      }
+    } catch (error) {
+      // Silently ignore errors during mouse tracking
+    }
+  };
+  
+  // Update dragging state
+  const onStartDrag = (e: any) => {
+    const localState = awareness.getLocalState();
+    if (localState) {
+      awareness.setLocalState({
+        ...localState,
+        draggingBlock: true
+      });
+    }
+  };
+  
+  const onStopDrag = (e: any) => {
+    const localState = awareness.getLocalState();
+    if (localState) {
+      awareness.setLocalState({
+        ...localState,
+        draggingBlock: false
+      });
+    }
+  };
+  
+  // Handle awareness changes to update cursors
+  const awarenessChangeHandler = (changes: any) => {
+    // Get all changes
+    awareness.getStates().forEach((state, clientId) => {
+      if (clientId !== awareness.clientID && state.cursor) {
+        createCursor(clientId, state);
+      }
+    });
+    
+    // Handle removed users
+    changes.removed.forEach((clientId: number) => {
+      removeCursor(clientId);
+    });
+  };
+  
+  // Set up awareness handler
+  awareness.on('change', awarenessChangeHandler);
+  
+  // Set up workspace event listeners if we have access to the DOM
+  if (typeof window !== 'undefined') {
+    const blocklyDiv = workspace.getInjectionDiv();
+    blocklyDiv.addEventListener('mousemove', onMouseMove);
+    
+    // Listen for block drag events
+    workspace.addChangeListener((e: any) => {
+      if (e.type === Blockly.Events.BLOCK_DRAG) {
+        if (e.isStart) {
+          onStartDrag(e);
+        } else {
+          onStopDrag(e);
+        }
+      }
+    });
+  }
+  
+  // Add window resize handler to update cursor positions
+  const resizeHandler = () => {
+    cursors.forEach((_, clientId) => {
+      updateCursorPosition(clientId);
+    });
+  };
+  
+  if (typeof window !== 'undefined') {
+    window.addEventListener('resize', resizeHandler);
+  }
+  
+  // Return cleanup function
+  return () => {
+    // Remove all cursors
+    cursors.forEach((_, clientId) => {
+      removeCursor(clientId);
+    });
+    
+    // Remove event listeners
+    awareness.off('change', awarenessChangeHandler);
+    
+    if (typeof window !== 'undefined') {
+      const blocklyDiv = workspace.getInjectionDiv();
+      if (blocklyDiv) {
+        blocklyDiv.removeEventListener('mousemove', onMouseMove);
+      }
+      window.removeEventListener('resize', resizeHandler);
+    }
+  };
+}
+
+// Helper to generate random name for anonymous users
+function getRandomName() {
+  const adjectives = ['Happy', 'Quick', 'Clever', 'Brave', 'Calm', 'Eager', 'Gentle', 'Jolly'];
+  const nouns = ['Panda', 'Tiger', 'Eagle', 'Dolphin', 'Fox', 'Wolf', 'Owl', 'Bear'];
+  
+  const randomAdjective = adjectives[Math.floor(Math.random() * adjectives.length)];
+  const randomNoun = nouns[Math.floor(Math.random() * nouns.length)];
+  
+  return `${randomAdjective}${randomNoun}`;
+}
+
+// Helper to generate random color for user cursors
+function getRandomColor() {
+  const colors = [
+    '#4285F4', // Google Blue
+    '#EA4335', // Google Red
+    '#FBBC05', // Google Yellow
+    '#34A853', // Google Green
+    '#8142FF', // Purple
+    '#FF5722', // Deep Orange
+    '#03A9F4', // Light Blue
+    '#009688'  // Teal
+  ];
+  
+  return colors[Math.floor(Math.random() * colors.length)];
+}
+
+// Type definitions for TypeScript
+interface CollabSetup {
+  ydoc: Y.Doc;
+  provider: WebsocketProvider | null;
+  awareness: Awareness;
+  connected: boolean;
+}
