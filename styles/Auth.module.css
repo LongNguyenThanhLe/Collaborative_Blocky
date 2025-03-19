@@ -222,13 +222,13 @@
 }
 
 /* Custom styles for Clerk UI to ensure it displays well */
-:global(.cl-card) {
+.clerkContainer :global(.cl-card) {
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1) !important;
   border-radius: 8px !important;
   overflow: hidden !important;
 }
 
-:global(.cl-formButtonPrimary) {
+.clerkContainer :global(.cl-formButtonPrimary) {
   background-color: #4285F4 !important;
 }
 
