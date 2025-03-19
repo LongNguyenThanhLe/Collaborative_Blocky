@@ -1,13 +1,22 @@
 import * as Y from 'yjs';
 import { Awareness } from 'y-protocols/awareness';
 import { WebsocketProvider } from 'y-websocket';
-import { doc, getDoc, setDoc, onSnapshot, updateDoc, collection } from "firebase/firestore";
+import { 
+  doc, getDoc, setDoc, onSnapshot, updateDoc, 
+  collection, getDocs, addDoc, serverTimestamp,
+  writeBatch, query, limit, where, Timestamp 
+} from "firebase/firestore";
 import { db } from './firebase';
 import { auth } from './firebase';
-import { onAuthStateChanged } from 'firebase/auth';
+import { onAuthStateChanged, getAuth } from 'firebase/auth';
 // These imports are dynamically loaded at runtime
 // We're just declaring the types here for TypeScript
 declare const Blockly: any;
+
+// Cache for room data to reduce Firestore reads
+const roomCache = new Map<string, {data: any, timestamp: number}>();
+const CACHE_EXPIRY = 5 * 60 * 1000; // 5 minutes cache expiry
+const USER_UPDATE_INTERVAL = 30 * 1000; // Only update user status every 30 seconds
 
 // Unique color generator for users
 function getRandomColor() {
@@ -32,6 +41,49 @@ type CollabSetup = {
   connected: boolean;
 }
 
+// Room management interface
+export interface Room {
+  id: string;
+  name: string;
+  createdBy: string;
+  createdAt: any;
+  lastAccessed: any;
+  userCount: number;
+  users?: { [uid: string]: { name: string, email: string, lastActive: any } };
+}
+
+/**
+ * Get room data with caching to reduce Firestore reads
+ */
+export async function getCachedRoomData(roomId: string) {
+  // Check cache first
+  const cachedData = roomCache.get(roomId);
+  const now = Date.now();
+  
+  if (cachedData && (now - cachedData.timestamp < CACHE_EXPIRY)) {
+    console.log('Using cached room data');
+    return cachedData.data;
+  }
+  
+  // Cache miss, fetch from Firestore
+  try {
+    const roomRef = doc(db, 'rooms', roomId);
+    const roomSnapshot = await getDoc(roomRef);
+    
+    if (roomSnapshot.exists()) {
+      const data = roomSnapshot.data();
+      // Update cache
+      roomCache.set(roomId, {data, timestamp: now});
+      return data;
+    }
+    return null;
+  } catch (error) {
+    console.error('Error fetching room data:', error);
+    // Return cached data even if expired in case of error
+    return cachedData?.data || null;
+  }
+}
+
 // Initialize collaboration for a specific room
 export async function initCollaboration(roomId: string): Promise<CollabSetup> {
   // Create a new Yjs document
@@ -44,26 +96,28 @@ export async function initCollaboration(roomId: string): Promise<CollabSetup> {
   let userName = getRandomName();
   let userColor = getRandomColor();
   let userEmail = '';
+  let userId = '';
   
-  onAuthStateChanged(auth, (user) => {
-    if (user) {
-      userEmail = user.email || '';
-      awareness.setLocalState({
-        name: userName,
-        email: userEmail,
-        color: userColor,
-        cursor: null,
-        draggingBlock: null, // Track if user is dragging a block
-      });
-    } else {
-      awareness.setLocalState({
-        name: userName,
-        email: '',
-        color: userColor,
-        cursor: null,
-        draggingBlock: null, // Track if user is dragging a block
-      });
-    }
+  // Get current auth user
+  const auth = getAuth();
+  const currentUser = auth.currentUser;
+  
+  if (currentUser) {
+    userEmail = currentUser.email || '';
+    userId = currentUser.uid;
+    userName = currentUser.displayName || userEmail.split('@')[0] || userName;
+    
+    // Add this room to user's history without blocking
+    addRoomToUserHistory(userId, roomId, roomId).catch(console.error);
+  }
+  
+  // Set awareness state with user information
+  awareness.setLocalState({
+    name: userName,
+    email: userEmail,
+    color: userColor,
+    cursor: null,
+    draggingBlock: null, // Track if user is dragging a block
   });
   
   let wsProvider: WebsocketProvider | null = null;
@@ -87,165 +141,313 @@ export async function initCollaboration(roomId: string): Promise<CollabSetup> {
     
     console.log(`Using WebSocket server: ${serverUrl}`);
     
-    try {
-      // Create the WebSocket provider and connect
-      wsProvider = new WebsocketProvider(
-        serverUrl, 
-        roomId, 
-        ydoc, 
-        { awareness }
-      );
-      
-      // Wait for connection status
-      await new Promise<void>((resolve) => {
-        // Set a timeout in case connection never establishes
-        const timeout = setTimeout(() => {
-          console.log('Connection timeout, continuing...');
-          resolve();
-        }, 3000);
-        
-        // Listen for connection status
-        wsProvider?.on('status', ({ status }: { status: string }) => {
-          if (status === 'connected') {
-            console.log('Connected to WebSocket server');
-            connected = true;
-            clearTimeout(timeout);
-            resolve();
-          }
-        });
-      });
-    } catch (err) {
-      console.log(`Failed to connect to ${serverUrl}: ${err}`);
-      wsProvider = null;
-    }
+    // Create WebSocket provider
+    wsProvider = new WebsocketProvider(serverUrl, roomId, ydoc);
     
-    if (wsProvider) {
-      // Set up reconnection logic
-      wsProvider.on('status', (event: any) => {
-        console.log('WebSocket connection status:', event.status);
-        if (event.status === 'disconnected') {
-          connected = false;
-          console.log('Disconnected from WebSocket server');
-          setTimeout(() => {
-            console.log('Attempting to reconnect...');
-            wsProvider?.connect();
-          }, 3000);
-        } else if (event.status === 'connected') {
+    // Update connections to room with debouncing to reduce Firestore writes
+    let lastUpdate = 0;
+    wsProvider.on('status', (event: { status: 'connecting' | 'connected' | 'disconnected' }) => {
+      const now = Date.now();
+      console.log(`WebSocket status: ${event.status}`);
+      
+      // Only update room state at most once every 30 seconds
+      if (now - lastUpdate > USER_UPDATE_INTERVAL) {
+        if (event.status === 'connected' && currentUser) {
           connected = true;
-          console.log('Connected to WebSocket server');
+          // Update room status when connected, but without blocking
+          updateRoomUserList(roomId, currentUser.uid, true).catch(console.error);
+          lastUpdate = now;
+        } else if (event.status === 'disconnected') {
+          connected = false;
+        }
+      }
+    });
+    
+    // Handle window unload to cleanly remove user from room
+    if (typeof window !== 'undefined') {
+      window.addEventListener('beforeunload', () => {
+        if (currentUser) {
+          // Use navigator.sendBeacon for more reliable cleanup on page unload
+          const roomUserUrl = `${process.env.NEXT_PUBLIC_API_URL || ''}/api/room-leave?roomId=${roomId}&userId=${currentUser.uid}`;
+          navigator.sendBeacon(roomUserUrl);
         }
       });
-    } else {
-      console.warn("Could not connect to WebSocket server, working in offline mode");
     }
   } catch (error) {
-    console.error("WebSocket connection error:", error);
+    console.error('Error connecting to WebSocket server:', error);
+    console.log('Falling back to local-only collaboration');
   }
+  
+  return { ydoc, provider: wsProvider, awareness, connected };
+}
 
-  // Update Firestore - but don't stop if it fails
+// Debounce function to limit rate of Firestore calls
+function debounce(func: Function, wait: number) {
+  let timeout: NodeJS.Timeout | null = null;
+  return function(...args: any[]) {
+    const later = () => {
+      timeout = null;
+      func(...args);
+    };
+    if (timeout) clearTimeout(timeout);
+    timeout = setTimeout(later, wait);
+  };
+}
+
+// Add room to user's history with optimized writes
+export async function addRoomToUserHistory(userId: string, roomId: string, roomName: string) {
+  if (!userId) return null;
+  
   try {
-    // Check if the room exists in Firestore, create it if not
-    const roomDocRef = doc(db, "rooms", roomId);
+    // Get room data using cached function
+    const roomData = await getCachedRoomData(roomId);
     
-    // Create user doc for this client
-    const userDocRef = doc(collection(db, "rooms", roomId, "users"), ydoc.clientID.toString());
+    // Limit writes to Firebase by checking if the room is already in history
+    const userRoomsRef = doc(db, 'users', userId, 'rooms', roomId);
+    const roomDoc = await getDoc(userRoomsRef);
     
-    // Variable to store room data for use in cleanup
-    let roomData: any = null;
-    
-    try {
-      // Try to get the room document
-      const roomSnap = await getDoc(roomDocRef);
+    // Only write if the room doesn't exist or was last accessed more than 1 hour ago
+    if (!roomDoc.exists() || 
+        (roomDoc.data().lastAccessed && 
+         new Date().getTime() - roomDoc.data().lastAccessed.toDate().getTime() > 3600000)) {
       
-      if (!roomSnap.exists()) {
-        // Create the room document if it doesn't exist
-        roomData = { 
-          created: new Date().toISOString(),
-          initialized: true,
-          userCount: 1
-        };
-        await setDoc(roomDocRef, roomData);
-        console.log(`Created new room: ${roomId}`);
-      } else {
-        // Get room data and update user count
-        roomData = roomSnap.data();
-        await updateDoc(roomDocRef, {
-          userCount: (roomData.userCount || 0) + 1
-        });
-        console.log(`Joined existing room: ${roomId}`);
-      }
-      
-      // Add this user to the room
-      await setDoc(userDocRef, {
-        name: userName,
-        email: userEmail,
-        color: userColor,
-        lastActive: new Date().toISOString(),
-        online: true
-      });
-      
-    } catch (error) {
-      console.error("Error initializing room in Firestore:", error);
+      await setDoc(userRoomsRef, {
+        roomId,
+        roomName: roomData?.name || roomName,
+        lastAccessed: serverTimestamp(),
+        userCount: roomData?.userCount || 1
+      }, { merge: true });
     }
     
-    // Update Firestore when user state changes (like cursor position)
-    awareness.on('change', (changes: any) => {
-      // Only sync if the change includes the local client
-      if (changes.added.includes(ydoc.clientID) || changes.updated.includes(ydoc.clientID)) {
-        const localState = awareness.getLocalState();
-        if (localState && localState.user) {
-          try {
-            const userData = {
-              name: localState.user.name || `User ${ydoc.clientID}`,
-              email: localState.user.email || '',
-              color: localState.user.color || generateRandomColor(ydoc.clientID),
-              lastActive: new Date().toISOString(),
-              online: true
-            };
-            
-            // Only send data if we have valid values
-            if (userData.name && userData.color) {
-              setDoc(userDocRef, userData, { merge: true }).catch(err => {
-                console.warn("Non-critical error updating user state:", err);
-              });
-            }
-          } catch (err) {
-            console.warn("Failed to update user state in Firestore", err);
+    return roomId;
+  } catch (error) {
+    console.error('Error adding room to history:', error);
+    return null;
+  }
+}
+
+// Function to get rooms the user has joined with efficient querying
+export async function getUserRooms(userId: string) {
+  if (!userId) return [];
+  
+  try {
+    const userRoomsRef = collection(db, 'users', userId, 'rooms');
+    // Only fetch maximum 20 most recently accessed rooms to limit data transfer
+    const roomsQuery = query(userRoomsRef, limit(20));
+    const snapshot = await getDocs(roomsQuery);
+    
+    return snapshot.docs.map(doc => ({
+      ...doc.data(),
+      id: doc.id
+    }));
+  } catch (error) {
+    console.error('Error getting user rooms:', error);
+    // Show friendly error message if it's quota exceeded
+    if (error instanceof Error && error.message.includes('quota exceeded')) {
+      throw new Error('Firebase usage limit reached. Please try again later.');
+    }
+    return [];
+  }
+}
+
+// Create a new room with batched write
+export async function createNewRoom(roomName: string, userId: string): Promise<string> {
+  if (!roomName || !userId) {
+    throw new Error('Room name and user ID are required');
+  }
+  
+  try {
+    // Generate a unique room ID (can be customized for readability)
+    const roomId = `room-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
+    
+    // Get user information
+    const auth = getAuth();
+    const user = auth.currentUser;
+    const userName = user?.displayName || user?.email?.split('@')[0] || 'Anonymous';
+    const userEmail = user?.email || '';
+    
+    // Use a batch write to create both the room and user history entry
+    const batch = writeBatch(db);
+    
+    // Initialize the room document
+    const roomRef = doc(db, 'rooms', roomId);
+    batch.set(roomRef, {
+      id: roomId,
+      name: roomName,
+      createdBy: userId,
+      createdAt: serverTimestamp(),
+      lastAccessed: serverTimestamp(),
+      userCount: 1,
+      users: {
+        [userId]: {
+          name: userName,
+          email: userEmail,
+          lastActive: serverTimestamp()
+        }
+      }
+    });
+    
+    // Add to user's room history in the same batch
+    const userRoomRef = doc(db, 'users', userId, 'rooms', roomId);
+    batch.set(userRoomRef, {
+      roomId,
+      roomName: roomName,
+      lastAccessed: serverTimestamp(),
+      userCount: 1
+    });
+    
+    // Commit the batch
+    await batch.commit();
+    
+    // Update the cache
+    roomCache.set(roomId, {
+      data: {
+        id: roomId,
+        name: roomName,
+        createdBy: userId,
+        lastAccessed: new Date(),
+        userCount: 1,
+        users: {
+          [userId]: {
+            name: userName,
+            email: userEmail,
+            lastActive: new Date()
           }
         }
-      }
+      },
+      timestamp: Date.now()
     });
     
-    // Set up cleanup for when the page unloads
-    window.addEventListener('beforeunload', () => {
-      try {
-        // Mark user as offline
-        setDoc(userDocRef, { online: false }, { merge: true });
-        
-        // Disconnect WebSocket
-        wsProvider?.disconnect();
-        
-        // Update room user count if we have room data
-        if (roomData) {
-          updateDoc(roomDocRef, {
-            userCount: Math.max(0, (roomData.userCount || 1) - 1)
-          });
-        }
-      } catch (error) {
-        // Just log - we're unloading anyway
-        console.warn("Error during cleanup:", error);
-      }
-    });
+    return roomId;
   } catch (error) {
-    console.warn("Error setting up Firestore (continuing without it):", error);
+    console.error('Error creating room:', error);
+    if (error instanceof Error && error.message.includes('quota exceeded')) {
+      throw new Error('Firebase usage limit reached. Please try again later.');
+    }
+    throw error;
   }
+}
 
-  return { 
-    ydoc, 
-    provider: wsProvider, 
-    awareness,
-    connected
-  };
+// Throttled function to update room user counts
+const throttledUserCountUpdate = debounce(async (roomId: string, changeAmount: number) => {
+  if (!roomId) return;
+  
+  try {
+    const roomRef = doc(db, 'rooms', roomId);
+    const roomSnapshot = await getDoc(roomRef);
+    
+    if (roomSnapshot.exists()) {
+      const roomData = roomSnapshot.data();
+      // Only update if the change is significant
+      await updateDoc(roomRef, {
+        userCount: Math.max(0, (roomData.userCount || 0) + changeAmount)
+      });
+    }
+  } catch (error) {
+    console.warn('Error updating room user count:', error);
+  }
+}, 60000); // Throttle to once per minute
+
+// Update room user list with better caching and batching
+export async function updateRoomUserList(roomId: string, userId: string, isJoining: boolean = true) {
+  if (!roomId || !userId) return;
+  
+  try {
+    // Get room data from cache first
+    let roomData = await getCachedRoomData(roomId);
+    
+    // If room doesn't exist in cache, try Firestore
+    if (!roomData) {
+      const roomRef = doc(db, 'rooms', roomId);
+      const roomSnapshot = await getDoc(roomRef);
+      
+      if (!roomSnapshot.exists()) {
+        // Room doesn't exist
+        if (isJoining) {
+          // Create room if joining
+          await createNewRoom('Untitled Room', userId);
+        }
+        return;
+      }
+      
+      roomData = roomSnapshot.data();
+    }
+    
+    const auth = getAuth();
+    const user = auth.currentUser;
+    
+    // Use a single document update instead of multiple field updates
+    let updates: any = {};
+    
+    if (isJoining && user) {
+      // Add user to room but don't update count every time
+      // It's better to have slightly inaccurate counts than exceed quota
+      updates = {
+        lastAccessed: serverTimestamp(),
+        [`users.${userId}`]: {
+          name: user.displayName || user.email?.split('@')[0] || 'Anonymous',
+          email: user.email || '',
+          lastActive: serverTimestamp()
+        }
+      };
+      
+      // Throttle the user count updates to reduce writes
+      throttledUserCountUpdate(roomId, 1);
+    } else if (!isJoining) {
+      // Don't remove the user on every disconnection, as they might reconnect
+      // Instead, just mark them as inactive after a significant period
+      const lastActiveThreshold = 10 * 60 * 1000; // 10 minutes
+      const lastActive = roomData.users?.[userId]?.lastActive;
+      
+      // Only remove user if they've been inactive for a while
+      if (lastActive && 
+          (new Date().getTime() - (lastActive.toDate?.() || lastActive).getTime() > lastActiveThreshold)) {
+        // Throttle the user count updates to reduce writes
+        throttledUserCountUpdate(roomId, -1);
+      }
+    }
+    
+    // Only update if we have changes to make
+    if (Object.keys(updates).length > 0) {
+      const roomRef = doc(db, 'rooms', roomId);
+      await updateDoc(roomRef, updates);
+      
+      // Update cache with new data
+      if (roomCache.has(roomId)) {
+        const cachedData = roomCache.get(roomId)!;
+        roomCache.set(roomId, {
+          data: { ...cachedData.data, ...updates },
+          timestamp: Date.now()
+        });
+      }
+    }
+  } catch (error) {
+    console.warn('Error updating room user list:', error);
+    // Don't throw on quota errors, just log and continue
+  }
+}
+
+// Get active users in a room with caching
+export async function getRoomUsers(roomId: string) {
+  if (!roomId) return [];
+  
+  try {
+    // Use cached room data first
+    const roomData = await getCachedRoomData(roomId);
+    
+    if (!roomData || !roomData.users) return [];
+    
+    // Convert users object to array
+    return Object.entries(roomData.users).map(([id, userData]: [string, any]) => ({
+      id,
+      name: userData.name,
+      email: userData.email,
+      lastActive: userData.lastActive
+    }));
+  } catch (error) {
+    console.error('Error getting room users:', error);
+    return [];
+  }
 }
 
 /**

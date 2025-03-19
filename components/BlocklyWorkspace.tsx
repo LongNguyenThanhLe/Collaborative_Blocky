@@ -6,14 +6,16 @@ import { initCollaboration, setupBlocklySync, setupCursorTracking } from '../lib
 interface BlocklyWorkspaceProps {
   roomId?: string;
   userId?: string;
+  userName?: string;
   userEmail?: string;
-  onConnectionStatusChange?: (status: string, connected?: boolean) => void;
+  onConnectionStatusChange?: (connected: boolean) => void;
   onUserCountChange?: (count: number) => void;
 }
 
 const BlocklyWorkspace: React.FC<BlocklyWorkspaceProps> = ({ 
   roomId = 'default-room',
   userId = 'anonymous',
+  userName = 'Anonymous User',
   userEmail = 'anonymous@example.com',
   onConnectionStatusChange,
   onUserCountChange
@@ -31,9 +33,9 @@ const BlocklyWorkspace: React.FC<BlocklyWorkspaceProps> = ({
   // Update parent component with connection status
   useEffect(() => {
     if (onConnectionStatusChange) {
-      onConnectionStatusChange(collaborationStatus, isConnected);
+      onConnectionStatusChange(isConnected);
     }
-  }, [collaborationStatus, isConnected, onConnectionStatusChange]);
+  }, [isConnected, onConnectionStatusChange]);
 
   // Update parent component with user count
   useEffect(() => {

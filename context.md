@@ -54,6 +54,35 @@ BlocklyCollab is an enhanced version of Google's Blockly programming environment
   - Enhanced workspace UI with modern dark header and status indicators
   - Improved real-time collaboration with better cursor tracking
   - Added user count and connection status display
+  - Created new dashboard page for project management
+  - Implemented advanced room management system
+  - Added user avatars to display room participants
+  - Optimized Firebase usage to prevent quota exceeded errors
+  - Implemented caching system for Firestore reads
+  - Reduced write operations with debouncing and batching
+  - Added proper cleanup for user connections with navigator.sendBeacon
+  - Created API endpoint for handling room leave events
+  - Fixed COOP errors in authentication flow
+
+## Firebase Optimization
+- Implemented in-memory cache for room data with 5-minute expiry
+- Reduced Firestore reads by caching frequently accessed data
+- Implemented debouncing for user status updates (30-second intervals)
+- Throttled user count updates to once per minute 
+- Used batch writes to create rooms and user history entries in one operation
+- Consolidated room state in a single document structure
+- Optimized error handling for quota exceeded errors
+- Added navigator.sendBeacon for reliable cleanup when users leave
+
+## Project Management Features
+- Dashboard page shows all projects a user has joined
+- Each project has its own collaborative workspace (room)
+- Projects display last access time and active user count
+- Users can create new projects or join existing ones via room ID
+- Room information is persisted in Firebase for each user
+- Share functionality allows easy collaboration via URL
+- User presence is tracked and displayed in real-time
+- Room history is maintained for quick access to previous projects
 
 ## Room Selection Features
 - Users can now create or join different collaboration rooms
