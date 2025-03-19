@@ -40,10 +40,11 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
   };
 
   // Update connection status
-  const handleConnectionStatus = (status: string, connected: boolean = false) => {
-    setConnectionStatus(status);
+  const handleConnectionStatus = (connected: boolean) => {
+    // Update connection status based on connected state
+    setConnectionStatus(connected ? 'Connected to collaboration server' : 'Disconnected from server');
     
-    if (status.includes('Failed') || status.includes('Error')) {
+    if (!connected) {
       // If connection failed, increment retry counter
       setConnectionRetries(prev => prev + 1);
       if (connectionRetries < 3) {
@@ -54,7 +55,7 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
       } else {
         setIsConnecting(false);
       }
-    } else if (connected || status.includes('Connected')) {
+    } else {
       // Reset retry counter on successful connection
       setConnectionRetries(0);
       setIsConnecting(false);
