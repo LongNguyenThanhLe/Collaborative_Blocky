@@ -24,6 +24,16 @@ export default function Dashboard() {
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<'rooms' | 'projects'>('rooms');
   
+  // Check for tab query parameter and set the active tab accordingly
+  useEffect(() => {
+    const { tab } = router.query;
+    if (tab === 'projects') {
+      setActiveTab('projects');
+    } else if (tab === 'rooms') {
+      setActiveTab('rooms');
+    }
+  }, [router.query]);
+
   // Rooms state
   const [rooms, setRooms] = useState<RoomCard[]>([]);
   const [newRoomName, setNewRoomName] = useState('');

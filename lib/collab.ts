@@ -267,11 +267,18 @@ export async function createNewRoom(roomName: string, userId: string): Promise<s
 }
 
 // Set up collaboration in the workspace
-// Removed unused Blockly parameter to fix build error
 export function setupBlocklySync(workspace: any, ydoc: Y.Doc, options?: {blockly: any}) {
+  // Get the Blockly instance from options - make sure we access it safely
   const Blockly = options?.blockly;
   if (!Blockly) {
     console.error('Blockly is required for setupBlocklySync');
+    return () => {};
+  }
+  
+  // Safely access Blockly methods
+  const BlocklyXml = Blockly.Xml || (Blockly as any).Xml;
+  if (!BlocklyXml || typeof BlocklyXml.workspaceToDom !== 'function' || typeof BlocklyXml.domToText !== 'function') {
+    console.error('Blockly.Xml methods not found. This can happen in production builds if Blockly is not properly imported.');
     return () => {};
   }
   
@@ -281,8 +288,8 @@ export function setupBlocklySync(workspace: any, ydoc: Y.Doc, options?: {blockly
   // Initialize with current workspace if the shared document is empty
   if (sharedBlocks.size === 0 && workspace) {
     try {
-      const xml = Blockly.Xml.workspaceToDom(workspace);
-      const xmlString = Blockly.Xml.domToText(xml);
+      const xml = BlocklyXml.workspaceToDom(workspace);
+      const xmlString = BlocklyXml.domToText(xml);
       sharedBlocks.set('current', xmlString);
     } catch (error) {
       console.error('Error initializing shared blocks:', error);
@@ -292,8 +299,13 @@ export function setupBlocklySync(workspace: any, ydoc: Y.Doc, options?: {blockly
   // Apply initial shared state if it exists
   if (sharedBlocks.get('current') && workspace) {
     try {
-      const xml = Blockly.Xml.textToDom(sharedBlocks.get('current'));
-      Blockly.Xml.clearWorkspaceAndLoadFromXml(xml, workspace);
+      // Safely access text to DOM conversion
+      if (typeof BlocklyXml.textToDom !== 'function') {
+        console.error('Blockly.Xml.textToDom is not available. Unable to apply shared state.');
+      } else {
+        const xml = BlocklyXml.textToDom(sharedBlocks.get('current'));
+        BlocklyXml.clearWorkspaceAndLoadFromXml(xml, workspace);
+      }
     } catch (error) {
       console.error('Error applying initial shared state:', error);
     }
@@ -308,8 +320,8 @@ export function setupBlocklySync(workspace: any, ydoc: Y.Doc, options?: {blockly
         event.type === Blockly.Events.BLOCK_MOVE) {
       try {
         // Get current workspace as XML and update the shared doc
-        const xml = Blockly.Xml.workspaceToDom(workspace);
-        const xmlString = Blockly.Xml.domToText(xml);
+        const xml = BlocklyXml.workspaceToDom(workspace);
+        const xmlString = BlocklyXml.domToText(xml);
         sharedBlocks.set('current', xmlString);
       } catch (error) {
         console.error('Error syncing workspace:', error);
@@ -328,14 +340,14 @@ export function setupBlocklySync(workspace: any, ydoc: Y.Doc, options?: {blockly
     try {
       // Get the XML from the shared doc and apply to workspace
       const xmlString = sharedBlocks.get('current');
-      if (xmlString) {
-        const xml = Blockly.Xml.textToDom(xmlString);
+      if (xmlString && typeof BlocklyXml.textToDom === 'function') {
+        const xml = BlocklyXml.textToDom(xmlString);
         
         // Temporarily disable the change listener to prevent looping
         workspace.removeChangeListener(changeListener);
         
         // Clear and load the workspace
-        Blockly.Xml.clearWorkspaceAndLoadFromXml(xml, workspace);
+        BlocklyXml.clearWorkspaceAndLoadFromXml(xml, workspace);
         
         // Re-enable the change listener
         workspace.addChangeListener(changeListener);
@@ -446,55 +458,117 @@ export function setupCursorTracking(workspace: any, ydoc: Y.Doc, provider: any, 
     if (!cursor || !cursor.state.cursor) return;
     
     try {
-      const workspaceCoordinate = new Blockly.utils.Coordinate(
-        cursor.state.cursor.x,
-        cursor.state.cursor.y
-      );
+      // Safely create workspace coordinate
+      let workspaceCoordinate;
       
-      // Convert from workspace coordinates to screen coordinates
-      const screenCoordinate = workspace.workspaceToPixels(workspaceCoordinate);
+      // Create a simple coordinate object as fallback
+      workspaceCoordinate = {
+        x: cursor.state.cursor.x,
+        y: cursor.state.cursor.y
+      };
       
-      // Update cursor position
-      cursor.element.style.left = `${screenCoordinate.x}px`;
-      cursor.element.style.top = `${screenCoordinate.y}px`;
-      
-      // If the user is dragging a block, show visual indicator
-      if (cursor.state.draggingBlock) {
-        cursor.element.classList.add('dragging-block');
+      // Check if we can translate workspace coordinates to screen coordinates
+      if (workspace && typeof workspace.workspaceToPixels === 'function') {
+        try {
+          // Convert workspace coordinates to screen coordinates
+          const screenCoordinates = workspace.workspaceToPixels(workspaceCoordinate);
+          
+          if (screenCoordinates && cursor.element) {
+            cursor.element.style.left = `${screenCoordinates.x}px`;
+            cursor.element.style.top = `${screenCoordinates.y}px`;
+          }
+        } catch (error) {
+          console.warn('Error converting coordinates:', error);
+          
+          // Fallback: display coordinates directly
+          if (cursor.element) {
+            cursor.element.style.left = `${workspaceCoordinate.x}px`;
+            cursor.element.style.top = `${workspaceCoordinate.y}px`;
+          }
+        }
       } else {
-        cursor.element.classList.remove('dragging-block');
+        // Fallback if workspaceToPixels is not available
+        const injectionDiv = workspace.getInjectionDiv();
+        if (injectionDiv && cursor.element) {
+          // Get workspace scale and offset
+          const scale = workspace.scale || 1;
+          const { x: offsetX, y: offsetY } = workspace.getMetrics() || { x: 0, y: 0 };
+          
+          // Apply scale and offset manually
+          const screenX = workspaceCoordinate.x * scale + offsetX;
+          const screenY = workspaceCoordinate.y * scale + offsetY;
+          
+          cursor.element.style.left = `${screenX}px`;
+          cursor.element.style.top = `${screenY}px`;
+        }
       }
     } catch (error) {
       console.error('Error updating cursor position:', error);
     }
   };
   
-  // Track local mouse movements and update awareness
+  // Set up mouse tracking
   const onMouseMove = (e: any) => {
-    // Convert screen position to workspace coordinates
-    const screenPosition = new Blockly.utils.Coordinate(e.clientX, e.clientY);
-    const svgPoint = workspace.getInjectionDiv().createSVGPoint();
-    svgPoint.x = screenPosition.x;
-    svgPoint.y = screenPosition.y;
-    
     try {
-      // Get position in workspace coordinates
-      const matrix = workspace.getCanvas().getScreenCTM().inverse();
-      const workspacePosition = svgPoint.matrixTransform(matrix);
+      // Only track if we have a valid workspace and provider
+      if (!workspace || !provider.awareness) return;
       
-      // Update local state in awareness
-      const localState = provider.awareness.getLocalState();
-      if (localState) {
-        provider.awareness.setLocalState({
-          ...localState,
-          cursor: {
-            x: workspacePosition.x,
-            y: workspacePosition.y
-          }
-        });
+      // Get screen coordinates
+      const mouseEvent = e.getBrowserEvent ? e.getBrowserEvent() : e;
+      const mouseX = mouseEvent.clientX;
+      const mouseY = mouseEvent.clientY;
+      
+      // Create an SVG point safely
+      let svgPoint;
+      let matrix;
+      let workspacePosition;
+      
+      try {
+        // Try to create SVG point using Blockly's injectionDiv
+        const injectionDiv = workspace.getInjectionDiv();
+        const svg = injectionDiv.querySelector('svg');
+        
+        if (svg && typeof svg.createSVGPoint === 'function') {
+          // Use SVG API to get workspace coordinates
+          svgPoint = svg.createSVGPoint();
+          svgPoint.x = mouseX;
+          svgPoint.y = mouseY;
+          
+          matrix = svg.getScreenCTM().inverse();
+          workspacePosition = svgPoint.matrixTransform(matrix);
+        } else {
+          // Fallback: calculate position manually
+          const rect = injectionDiv.getBoundingClientRect();
+          const scale = workspace.scale || 1;
+          
+          // Convert client coordinates to workspace coordinates
+          workspacePosition = {
+            x: (mouseX - rect.left) / scale,
+            y: (mouseY - rect.top) / scale
+          };
+        }
+      } catch (error) {
+        console.warn('Error creating SVG point, using fallback:', error);
+        
+        // Fallback to basic coordinate conversion
+        const injectionDiv = workspace.getInjectionDiv();
+        const rect = injectionDiv.getBoundingClientRect();
+        const scale = workspace.scale || 1;
+        
+        workspacePosition = {
+          x: (mouseX - rect.left) / scale,
+          y: (mouseY - rect.top) / scale
+        };
       }
+      
+      // Update local user state with the cursor position
+      const localState = provider.awareness.getLocalState() || {};
+      provider.awareness.setLocalState({
+        ...localState,
+        cursor: workspacePosition
+      });
     } catch (error) {
-      // Silently ignore errors during mouse tracking
+      console.error('Error in mouse move handler:', error);
     }
   };
   
@@ -521,17 +595,70 @@ export function setupCursorTracking(workspace: any, ydoc: Y.Doc, provider: any, 
   
   // Handle awareness changes to update cursors
   const awarenessChangeHandler = (changes: Map<number, any>) => {
-    // Get all changes
-    provider.awareness.getStates().forEach((state: any, clientId: number) => {
-      if (clientId !== provider.awareness.clientID && state.cursor) {
-        createCursor(clientId, state);
+    try {
+      // Get all states - safely handle it whether it's iterable or not
+      const states = provider.awareness.getStates();
+      
+      // Handle states - try different approaches based on what's available
+      if (states) {
+        if (typeof states.forEach === 'function') {
+          // If states has a forEach method, use it
+          states.forEach((state: any, clientId: number) => {
+            if (clientId !== provider.awareness.clientID && state && state.cursor) {
+              createCursor(clientId, state);
+            }
+          });
+        } else if (typeof states.entries === 'function') {
+          // If states has entries method, convert to array and use forEach
+          const entries = Array.from(states.entries()) as Array<[number, any]>;
+          for (const entry of entries) {
+            const clientId = entry[0];
+            const state = entry[1];
+            if (clientId !== provider.awareness.clientID && state && state.cursor) {
+              createCursor(clientId, state);
+            }
+          }
+        } else if (states instanceof Object) {
+          // Fallback: try to treat states as a plain object
+          Object.entries(states).forEach(([clientIdStr, state]) => {
+            const clientId = parseInt(clientIdStr, 10);
+            if (clientId !== provider.awareness.clientID && state && (state as any).cursor) {
+              createCursor(clientId, state as any);
+            }
+          });
+        } else {
+          console.warn('Unable to iterate through awareness states');
+        }
       }
-    });
-    
-    // Remove cursors for disconnected users
-    changes.forEach((change, clientId) => {
-      if (change.user === null) removeCursor(clientId);
-    });
+      
+      // Safely handle changes for disconnected users
+      if (changes) {
+        if (typeof changes.forEach === 'function') {
+          // If changes has forEach method
+          changes.forEach((change, clientId) => {
+            if (change && change.user === null) removeCursor(clientId);
+          });
+        } else if (typeof changes.entries === 'function') {
+          // If changes has entries method
+          const entries = Array.from(changes.entries()) as Array<[number, any]>;
+          for (const entry of entries) {
+            const clientId = entry[0];
+            const change = entry[1];
+            if (change && change.user === null) removeCursor(clientId);
+          }
+        } else if (changes instanceof Object) {
+          // Fallback: try to iterate through it as an object
+          Object.entries(changes).forEach(([clientIdStr, change]) => {
+            const clientId = parseInt(clientIdStr, 10);
+            if (change && (change as any).user === null) removeCursor(clientId);
+          });
+        } else {
+          console.warn('Changes object is not iterable with any known method');
+        }
+      }
+    } catch (error) {
+      console.error('Error in awareness change handler:', error);
+    }
   };
   
   // Set up awareness handler
@@ -582,120 +709,95 @@ export function setupCursorTracking(workspace: any, ydoc: Y.Doc, provider: any, 
 }
 
 // Initialize collaboration for a specific room
-export async function initCollaboration(roomId: string, userIdentifier: string, blocklyWorkspace: any, blockly: any): Promise<any> {
-  // Create a new Yjs document
-  const ydoc = new Y.Doc();
-  
-  // Create an awareness instance for this document
-  const awareness = new Awareness(ydoc);
-  
-  // Set the local user state with a random name and color
-  let userName = getRandomName();
-  let userColor = getRandomColor();
-  let userEmail = '';
-  let currentUserId = '';
-  
-  // Get current auth user
-  const currentUser = auth.currentUser;
-  
-  if (currentUser) {
-    userEmail = currentUser.email || '';
-    currentUserId = currentUser.uid;
-    userName = currentUser.displayName || userEmail.split('@')[0] || userName;
-    
-    // Add this room to user's history without blocking
-    addRoomToUserHistory(currentUserId, roomId, roomId).catch(console.error);
-  }
-  
-  // Set awareness state with user information
-  awareness.setLocalState({
-    name: userName,
-    email: userEmail,
-    color: userColor,
-    cursor: null,
-    draggingBlock: null, // Track if user is dragging a block
-  });
-  
-  let wsProvider: WebsocketProvider | null = null;
-  let connected = false;
-  
-  // Try connecting to WebSocket server
+export async function initCollaboration(
+  roomId: string, 
+  userIdentifier: string, 
+  blocklyWorkspace: any,
+  blockly: any
+): Promise<any> {
   try {
-    console.log(`Connecting to WebSocket server for room: ${roomId}...`);
-    
-    // Get WebSocket server URL from environment or use fallbacks
-    // In production (Vercel), use the deployed WebSocket server
-    // In development, use the local server
-    let serverUrl = typeof window !== 'undefined' ? 
-      process.env.NEXT_PUBLIC_WEBSOCKET_URL || 'wss://collaborative-blockly-ws.onrender.com' :
-      'ws://localhost:1234';
-      
-    // For local development, fallback to localhost
-    if (process.env.NODE_ENV === 'development') {
-      serverUrl = 'ws://localhost:1234';
+    // Validate required parameters
+    if (!roomId || !userIdentifier || !blocklyWorkspace) {
+      console.error('Missing required parameters for initCollaboration');
+      return {
+        ydoc: null,
+        provider: null,
+        awareness: null,
+        connected: false
+      };
     }
+
+    // Get room data from Firestore
+    const roomData = await getCachedRoomData(roomId);
+    if (!roomData) {
+      console.error('Room not found');
+      return {
+        ydoc: null,
+        provider: null,
+        awareness: null,
+        connected: false
+      };
+    }
+
+    // Create Yjs document
+    const ydoc = new Y.Doc();
     
-    console.log(`Using WebSocket server: ${serverUrl}`);
-    
-    // Create WebSocket provider
-    wsProvider = new WebsocketProvider(serverUrl, roomId, ydoc);
-    
-    // Update connections to room with debouncing to reduce Firestore writes
-    let lastUpdate = 0;
-    wsProvider.on('status', (event: { status: 'connecting' | 'connected' | 'disconnected' }) => {
-      const now = Date.now();
-      console.log(`WebSocket status: ${event.status}`);
+    // Determine WebSocket URL based on environment
+    let websocketUrl = '';
+    if (typeof window !== 'undefined') {
+      const isProduction = process.env.NODE_ENV === 'production';
+      websocketUrl = isProduction 
+        ? 'wss://blockly-collab-server.onrender.com' 
+        : 'ws://localhost:1234';
       
-      // Only update room state at most once every 30 seconds
-      if (now - lastUpdate > USER_STATUS_DEBOUNCE) {
-        if (event.status === 'connected' && currentUser) {
-          connected = true;
-          // Update room status when connected, but without blocking
-          updateUserRoomActivityThrottled(currentUserId, roomId).catch(console.error);
-          lastUpdate = now;
-        } else if (event.status === 'disconnected') {
-          connected = false;
-        }
-      }
+      console.log(`Using WebSocket URL: ${websocketUrl}`);
+    }
+
+    // Create Yjs WebSocket provider with the room ID as the document name
+    let provider: WebsocketProvider | null = null;
+    
+    try {
+      provider = new WebsocketProvider(
+        websocketUrl,
+        `blockly-room-${roomId}`,
+        ydoc,
+        { connect: true }
+      );
+      
+      console.log('WebSocket provider initialized');
+    } catch (error) {
+      console.error('Error creating WebSocket provider:', error);
+    }
+
+    // Create user awareness
+    const awareness = provider ? provider.awareness : new Awareness(ydoc);
+    
+    // Set initial user state with color and name
+    const userName = userIdentifier;
+    const userColor = getRandomColor();
+    
+    awareness.setLocalState({
+      name: userName,
+      color: userColor,
     });
     
-    // Handle window unload to cleanly remove user from room
-    if (typeof window !== 'undefined') {
-      window.addEventListener('beforeunload', () => {
-        if (currentUser) {
-          // Use navigator.sendBeacon for more reliable cleanup on page unload
-          const roomUserUrl = `${process.env.NEXT_PUBLIC_API_URL || ''}/api/room-leave?roomId=${roomId}&userId=${currentUser.uid}`;
-          navigator.sendBeacon(roomUserUrl);
-        }
-      });
-    }
+    // Return the document, provider, and connection status
+    return {
+      ydoc,
+      provider,
+      awareness,
+      connected: provider ? provider.wsconnected : false,
+      blockly
+    };
   } catch (error) {
-    console.error('Error connecting to WebSocket server:', error);
-    console.log('Falling back to local-only collaboration');
+    console.error('Error initializing collaboration:', error);
+    return {
+      ydoc: null,
+      provider: null,
+      awareness: null,
+      connected: false
+    };
   }
-  
-  // Register user presence in Firestore
-  try {
-    // Get user info from authentication
-    const auth = getAuth();
-    let displayName = 'Anonymous';
-    let email = '';
-    
-    if (auth.currentUser) {
-      displayName = auth.currentUser.displayName || getRandomName();
-      email = auth.currentUser.email || '';
-    }
-    
-    // Register user presence in the room
-    registerUserPresence(roomId, userIdentifier, displayName, email);
-    
-    // Also update the userIds array to ensure the user is in the room's user list
-    await updateRoomUserList(roomId, userIdentifier, true);
-  } catch (error) {
-    console.error('Error registering user presence:', error);
-  }
-  
-  return { ydoc, provider: wsProvider, awareness, connected };
 }
 
 // Register user presence in a room

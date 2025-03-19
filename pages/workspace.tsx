@@ -205,10 +205,15 @@ const Workspace: NextPage = () => {
     return initials;
   };
   
-  // Return to dashboard
-  const goToDashboard = () => {
-    router.push('/projects');
+  // Add back button functionality to return to the correct dashboard tab
+  const handleBackToDashboard = () => {
+    // If we came from a project, go back to projects tab, otherwise rooms tab
+    const tab = projectId ? 'projects' : 'rooms';
+    router.push(`/dashboard?tab=${tab}`);
   };
+  
+  // Return to dashboard
+  // Removed the goToDashboard function
   
   // Format time for last saved indicator
   const formatLastSaved = () => {
@@ -239,8 +244,8 @@ const Workspace: NextPage = () => {
     return (
       <div className={styles.loadingContainer}>
         <p className={styles.errorMessage}>{errorMessage}</p>
-        <button onClick={goToDashboard} className={styles.dashboardButton}>
-          Return to Projects
+        <button onClick={handleBackToDashboard} className={styles.dashboardButton}>
+          Return to Dashboard
         </button>
       </div>
     );
@@ -255,14 +260,14 @@ const Workspace: NextPage = () => {
             <h1>Blockly Workspace</h1>
           </div>
           <div className={styles.headerRight}>
-            <button onClick={goToDashboard} className={styles.dashboardButton}>
-              Projects
+            <button onClick={handleBackToDashboard} className={styles.dashboardButton}>
+              Dashboard
             </button>
           </div>
         </div>
         <div className={styles.main}>
           <div className={styles.placeholderWorkspace}>
-            No room or project selected. Please go to the projects page to create or open a project.
+            No room or project selected. Please go to the dashboard to create or open a project.
           </div>
         </div>
       </div>
@@ -279,8 +284,11 @@ const Workspace: NextPage = () => {
     <div className={styles.container}>
       <div className={styles.header}>
         <div className={styles.headerLeft}>
-          <button onClick={goToDashboard} className={styles.backButton}>
-            <FaArrowLeft />
+          <button 
+            onClick={handleBackToDashboard} 
+            className={styles.backButton}
+          >
+            &larr; Back to Dashboard
           </button>
           <h2 className={styles.roomTitle}>
             {activeTitle}
@@ -345,10 +353,10 @@ const Workspace: NextPage = () => {
           </button>
           
           <button
-            onClick={goToDashboard}
+            onClick={handleBackToDashboard}
             className={styles.dashboardButton}
           >
-            <FaHome /> Projects
+            <FaHome /> Dashboard
           </button>
         </div>
       </div>

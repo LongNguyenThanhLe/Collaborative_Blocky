@@ -272,31 +272,38 @@ const BlocklyWorkspace: React.FC<BlocklyWorkspaceProps> = ({
           setCollaborationStatus('Connecting to collaboration server...');
           setIsConnected(false);
           
-          // Initialize collaboration
+          // Initialize collaboration - Pass Blockly properly as an object
           const { ydoc, provider, awareness, connected } = await initCollaboration(
             roomId, 
             userId, 
             newWorkspace, 
-            Blockly
+            Blockly  // Make sure this is passed correctly as the Blockly instance
           );
           
-          // Set up Blockly synchronization 
+          // Set up Blockly synchronization with proper Blockly reference
           const cleanup = setupBlocklySync(newWorkspace, ydoc, {
-            blockly: Blockly
+            blockly: Blockly  // This correctly passes the Blockly API
           });
           
           // Set up cursor tracking if the provider is available
           if (blocklyDiv.current && provider) {
-            setupCursorTracking(
+            const cursorCleanup = setupCursorTracking(
               newWorkspace,
               ydoc,
               provider,
               { 
-                name: userEmail.split('@')[0] || userId,
+                name: userName || userEmail.split('@')[0] || userId,  // Use userName first, then fallback
                 email: userEmail,
                 color: generateUserColor(userId)
               }
             );
+            
+            // Store cursor cleanup function
+            const originalCleanup = collaborationCleanup;
+            collaborationCleanup = () => {
+              if (originalCleanup) originalCleanup();
+              if (cursorCleanup) cursorCleanup();
+            };
           }
           
           // Update initial connection status
@@ -315,20 +322,26 @@ const BlocklyWorkspace: React.FC<BlocklyWorkspaceProps> = ({
               if (event.status === 'connected') {
                 setIsConnected(true);
                 setCollaborationStatus(`Connected to room: ${roomId}`);
+                if (onConnectionStatusChange) onConnectionStatusChange(true);
               } else if (event.status === 'disconnected') {
                 setIsConnected(false);
                 setCollaborationStatus('Disconnected from collaboration server');
+                if (onConnectionStatusChange) onConnectionStatusChange(false);
               }
             });
           }
           
-          // Set up user count tracking
+          // Set up user count tracking with callback
           awareness.on('change', () => {
             const count = Array.from(awareness.getStates().keys()).length;
             setUserCount(count);
+            if (onUserCountChange) onUserCountChange(count);
           });
           
-          collaborationCleanup = cleanup;
+          // Store the collaboration cleanup
+          if (!collaborationCleanup) {
+            collaborationCleanup = cleanup;
+          }
         } catch (error) {
           console.error('Error setting up collaboration:', error);
           setCollaborationStatus('Error connecting to collaboration server');
