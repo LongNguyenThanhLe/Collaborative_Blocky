@@ -3,8 +3,9 @@ import Link from 'next/link';
 import { useRouter } from 'next/router';
 import styles from '../styles/Auth.module.css';
 import { FaPuzzlePiece, FaGoogle } from 'react-icons/fa';
-import { useState } from 'react';
-import { signIn, signInWithGoogle } from '../lib/firebase';
+import { useState, useEffect } from 'react';
+import { signIn, signInWithGoogle, auth } from '../lib/firebase';
+import { getRedirectResult, AuthErrorCodes } from 'firebase/auth';
 
 export default function Login() {
   const [email, setEmail] = useState('');
@@ -12,6 +13,34 @@ export default function Login() {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const router = useRouter();
+  
+  // Handle redirect result from Google Sign-in
+  useEffect(() => {
+    const checkRedirectResult = async () => {
+      try {
+        // Show loading state during redirect result check
+        setLoading(true);
+        
+        // Get the redirect result
+        const result = await getRedirectResult(auth);
+        
+        if (result?.user) {
+          // User successfully signed in with Google redirect
+          router.push('/dashboard');
+        }
+      } catch (error: any) {
+        console.error('Error processing redirect result:', error);
+        if (error.code !== AuthErrorCodes.NULL_USER) {
+          // Only show errors that aren't due to no redirect result
+          setError(error.message || 'An error occurred during Google sign-in');
+        }
+      } finally {
+        setLoading(false);
+      }
+    };
+    
+    checkRedirectResult();
+  }, [router]);
   
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -30,8 +59,8 @@ export default function Login() {
       setError(result.error);
       setLoading(false);
     } else {
-      // Redirect to workspace on successful login
-      router.push('/workspace');
+      // Redirect to dashboard on successful login
+      router.push('/dashboard');
     }
   };
   
@@ -39,14 +68,13 @@ export default function Login() {
     setLoading(true);
     setError('');
     
-    const result = await signInWithGoogle();
-    
-    if (result.error) {
-      setError(result.error);
+    try {
+      await signInWithGoogle();
+      // Note: The redirect will happen automatically, no need to navigate here
+      // The result will be handled in the useEffect hook on return from redirect
+    } catch (error: any) {
+      setError(error.message || 'Google sign-in failed');
       setLoading(false);
-    } else {
-      // Redirect to workspace on successful login
-      router.push('/workspace');
     }
   };
   

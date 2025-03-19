@@ -10,7 +10,9 @@ import {
   createUserWithEmailAndPassword, 
   signOut,
   GoogleAuthProvider,
-  signInWithPopup
+  signInWithPopup,
+  signInWithRedirect,
+  getRedirectResult
 } from "firebase/auth";
 
 // Your web app's Firebase configuration
@@ -93,9 +95,20 @@ export const signUp = async (email: string, password: string) => {
 // Google sign-in
 export const signInWithGoogle = async () => {
   try {
-    const result = await signInWithPopup(auth, googleProvider);
-    return { user: result.user, error: null };
+    // Use signInWithRedirect instead of signInWithPopup to avoid COOP issues
+    // This will redirect the user to the Google sign-in page and then back to the app
+    // avoiding cross-origin issues with popup windows
+    const provider = new GoogleAuthProvider();
+    provider.setCustomParameters({
+      prompt: 'select_account'
+    });
+    
+    await signInWithRedirect(auth, provider);
+    
+    // Note: The result will be processed in the component using getRedirectResult
+    return { user: null, error: null };
   } catch (error: any) {
+    console.error("Google sign-in error:", error);
     return { user: null, error: error.message || 'Google sign in failed' };
   }
 };
