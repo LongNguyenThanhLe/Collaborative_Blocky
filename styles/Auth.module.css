@@ -56,6 +56,8 @@
 
 .clerkContainer {
   width: 100%;
+  max-width: 400px;
+  margin: 0 auto;
   /* Clerk components will use their own styling */
   /* These styles help the container fit within our design */
   --clerk-primary: #4285F4;
@@ -99,19 +101,19 @@
 
 .authButton {
   padding: 0.75rem 1rem;
-  background: #4285F4;
-  color: white;
+  background-color: #4285F4 !important;
+  color: white !important;
   border: none;
-  border-radius: 4px;
+  border-radius: 4px !important;
   font-size: 1rem;
-  font-weight: 500;
+  font-weight: 500 !important;
   cursor: pointer;
-  transition: background 0.2s ease;
+  transition: background-color 0.2s ease !important;
   margin-top: 1rem;
 }
 
 .authButton:hover {
-  background: #3367D6;
+  background-color: #3367d6 !important;
 }
 
 .authButton:disabled {
@@ -126,9 +128,9 @@
 }
 
 .authLink {
-  color: #4285F4;
+  color: #4285F4 !important;
   text-decoration: none;
-  font-weight: 500;
+  font-weight: 500 !important;
 }
 
 .authLink:hover {
@@ -203,6 +205,31 @@
 
 .socialButton:hover {
   background: #f5f5f5;
+}
+
+.loadingAuth {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  height: 200px;
+  color: #4285F4;
+  font-size: 16px;
+  background-color: #f5f5f5;
+  border-radius: 8px;
+  padding: 20px;
+  text-align: center;
+  font-weight: 500;
+}
+
+/* Custom styles for Clerk UI to ensure it displays well */
+:global(.cl-card) {
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1) !important;
+  border-radius: 8px !important;
+  overflow: hidden !important;
+}
+
+:global(.cl-formButtonPrimary) {
+  background-color: #4285F4 !important;
 }
 
 @media (max-width: 500px) {

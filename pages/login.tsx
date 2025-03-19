@@ -3,8 +3,16 @@ import Link from 'next/link';
 import { SignIn } from '@clerk/nextjs';
 import styles from '../styles/Auth.module.css';
 import { FaPuzzlePiece } from 'react-icons/fa';
+import { useEffect, useState } from 'react';
 
 export default function Login() {
+  const [isClient, setIsClient] = useState(false);
+  
+  // Ensure component only renders on client-side
+  useEffect(() => {
+    setIsClient(true);
+  }, []);
+  
   return (
     <div className={styles.authContainer}>
       <Head>
@@ -27,12 +35,26 @@ export default function Login() {
         </div>
 
         <div className={styles.clerkContainer}>
-          <SignIn 
-            routing="path" 
-            path="/login" 
-            signUpUrl="/signup"
-            afterSignInUrl="/workspace"
-          />
+          {isClient && (
+            <SignIn 
+              routing="path" 
+              path="/login" 
+              signUpUrl="/signup"
+              afterSignInUrl="/workspace"
+              appearance={{
+                elements: {
+                  formButtonPrimary: styles.authButton,
+                  footerActionLink: styles.authLink
+                }
+              }}
+            />
+          )}
+          
+          {!isClient && (
+            <div className={styles.loadingAuth}>
+              Loading login form...
+            </div>
+          )}
         </div>
       </div>
     </div>
