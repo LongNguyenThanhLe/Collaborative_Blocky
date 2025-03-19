@@ -180,15 +180,20 @@ const BlocklyWorkspace: React.FC<BlocklyWorkspaceProps> = ({
           // Initialize collaboration
           const { ydoc, provider, awareness, connected } = await initCollaboration(roomId);
           
-          // Set up Blockly synchronization with explicit XML utilities
+          // Set up Blockly synchronization 
           const cleanup = setupBlocklySync(newWorkspace, ydoc, {
-            blockly: Blockly,
-            xml: BlocklyXml
+            blockly: Blockly
           });
           
           // Set up cursor tracking if the provider is available
           if (blocklyDiv.current && awareness) {
-            setupCursorTracking(awareness, blocklyDiv.current);
+            setupCursorTracking(
+              blocklyDiv.current,
+              newWorkspace,
+              ydoc,
+              awareness,
+              { name: `User ${Math.floor(Math.random() * 1000)}` }
+            );
           }
           
           // Update initial connection status

@@ -174,16 +174,21 @@ export async function initCollaboration(roomId: string): Promise<CollabSetup> {
       // Only sync if the change includes the local client
       if (changes.added.includes(ydoc.clientID) || changes.updated.includes(ydoc.clientID)) {
         const localState = awareness.getLocalState();
-        if (localState) {
+        if (localState && localState.user) {
           try {
-            setDoc(userDocRef, {
-              name: localState.name,
-              color: localState.color,
+            const userData = {
+              name: localState.user.name || `User ${ydoc.clientID}`,
+              color: localState.user.color || generateRandomColor(ydoc.clientID),
               lastActive: new Date().toISOString(),
               online: true
-            }, { merge: true }).catch(err => {
-              console.warn("Non-critical error updating user state:", err);
-            });
+            };
+            
+            // Only send data if we have valid values
+            if (userData.name && userData.color) {
+              setDoc(userDocRef, userData, { merge: true }).catch(err => {
+                console.warn("Non-critical error updating user state:", err);
+              });
+            }
           } catch (err) {
             console.warn("Failed to update user state in Firestore", err);
           }
@@ -225,12 +230,14 @@ export async function initCollaboration(roomId: string): Promise<CollabSetup> {
 
 /**
  * This function sets up synchronization between a Blockly workspace and a shared Yjs document
- * to enable real-time collaboration.
+ * to enable real-time collaboration with per-block synchronization.
  */
 export function setupBlocklySync(workspace: any, ydoc: Y.Doc, blocklyApi?: any) {
   try {
-    // Get the shared maps from the document
-    const sharedBlocks = ydoc.getMap('blocks');
+    // Get or create shared Yjs structures
+    const sharedBlocks = ydoc.getMap('blocks'); // Map of block IDs to block data
+    const sharedVariables = ydoc.getMap('variables'); // Map for variable data
+    const sharedWorkspaceState = ydoc.getMap('workspaceState'); // General workspace state
     
     // Get awareness for cursor tracking
     const awareness = (ydoc as any).awareness || new Awareness(ydoc);
@@ -238,31 +245,23 @@ export function setupBlocklySync(workspace: any, ydoc: Y.Doc, blocklyApi?: any) 
     
     // Reference to blockly - prefer passed reference, fall back to extraction
     let Blockly: any = blocklyApi?.blockly || null;
-    // Reference to Blockly XML utilities
-    let BlocklyXml: any = blocklyApi?.xml || null;
     
     if (!Blockly) {
       // Extract Blockly reference from workspace as fallback
-      if (workspace && workspace.constructor && workspace.constructor.prototype && workspace.constructor.prototype.constructor) {
+      if (workspace?.constructor?.prototype?.constructor) {
         Blockly = workspace.constructor.prototype.constructor;
-        console.log('Found Blockly reference from workspace');
-      } else {
+      } else if (typeof window !== 'undefined' && (window as any).Blockly) {
         // Fallback to global Blockly if available
-        if (typeof window !== 'undefined' && (window as any).Blockly) {
-          Blockly = (window as any).Blockly;
-          console.log('Using global Blockly reference');
-        } else {
-          console.error('Could not find Blockly reference');
-        }
+        Blockly = (window as any).Blockly;
+      } else {
+        console.error('Could not find Blockly reference');
       }
-    } else {
-      console.log('Using provided Blockly API reference');
     }
     
-    // Track if we're currently applying changes to avoid loops
+    // State tracking
     let applyingChanges = false;
-    // Track if we're currently dragging a block to avoid interruptions
     let isDragging = false;
+    let draggingBlockId: string | null = null;
     
     // Store blockly event constants
     const EVENTS: Record<string, string> = {
@@ -276,188 +275,425 @@ export function setupBlocklySync(workspace: any, ydoc: Y.Doc, blocklyApi?: any) 
       VAR_RENAME: 'var_rename',
     };
     
-    // Find which event constants are available in this Blockly instance
-    if (Blockly && Blockly.Events) {
+    // Update event constants from Blockly.Events if available
+    if (Blockly?.Events) {
       Object.keys(EVENTS).forEach(key => {
         if (Blockly.Events[key]) {
           EVENTS[key] = Blockly.Events[key];
         }
       });
-      console.log('Updated event constants from Blockly.Events');
-    } else {
-      console.warn('Could not access Blockly.Events, using fallback event names');
     }
     
-    // Function to apply shared state to the workspace
-    const applySharedState = () => {
+    // Function to serialize a single block to a JSON object
+    const serializeBlock = (block: any) => {
       try {
-        // Skip if we're already applying changes or dragging
-        if (applyingChanges || isDragging) return;
+        if (!block) return null;
         
-        // Get the latest XML state
-        const xmlText = sharedBlocks.get('workspace');
-        if (!xmlText || typeof xmlText !== 'string') {
-          console.warn('No valid workspace XML found in shared state');
-          return;
+        // Get position
+        let position = block.getRelativeToSurfaceXY();
+        if (!position || typeof position.x !== 'number' || typeof position.y !== 'number') {
+          console.warn('Invalid block position', block.id);
+          position = { x: 0, y: 0 }; // Fallback position
         }
         
-        console.log('Applying shared state to workspace');
+        // Get connections and linked blocks
+        const connections: Record<string, string | null> = {};
         
-        // Set flags to prevent recursive updates
-        applyingChanges = true;
+        // Process all connections
+        if (block.inputList && Array.isArray(block.inputList)) {
+          block.inputList.forEach((input: any) => {
+            if (input && input.connection && input.connection.targetConnection) {
+              const targetBlock = input.connection.targetConnection.getSourceBlock();
+              if (targetBlock && targetBlock.id) {
+                connections[input.name] = targetBlock.id;
+              }
+            }
+          });
+        }
         
-        // Remove listeners temporarily
-        workspace.removeChangeListener(changeListener);
-        
-        // Clear workspace and load new state
-        workspace.clear();
-        
-        // Access XML utilities, using explicitly provided ones first
-        const xmlUtilities = {
-          textToDom: (text: string) => {
-            // First try explicit XML utilities
-            if (BlocklyXml && typeof BlocklyXml.textToDom === 'function') {
-              return BlocklyXml.textToDom(text);
-            }
-            
-            // Then try Blockly.Xml
-            if (Blockly && Blockly.Xml && typeof Blockly.Xml.textToDom === 'function') {
-              return Blockly.Xml.textToDom(text);
-            }
-            
-            // Finally try global Blockly
-            if (typeof window !== 'undefined' && 
-                (window as any).Blockly && 
-                (window as any).Blockly.Xml && 
-                typeof (window as any).Blockly.Xml.textToDom === 'function') {
-              return (window as any).Blockly.Xml.textToDom(text);
-            }
-            
-            throw new Error('Could not find textToDom function');
-          },
-          domToWorkspace: (dom: any, ws: any) => {
-            // First try explicit XML utilities
-            if (BlocklyXml && typeof BlocklyXml.domToWorkspace === 'function') {
-              return BlocklyXml.domToWorkspace(dom, ws);
-            }
-            
-            // Then try Blockly.Xml
-            if (Blockly && Blockly.Xml && typeof Blockly.Xml.domToWorkspace === 'function') {
-              return Blockly.Xml.domToWorkspace(dom, ws);
-            }
-            
-            // Finally try global Blockly
-            if (typeof window !== 'undefined' && 
-                (window as any).Blockly && 
-                (window as any).Blockly.Xml && 
-                typeof (window as any).Blockly.Xml.domToWorkspace === 'function') {
-              return (window as any).Blockly.Xml.domToWorkspace(dom, ws);
-            }
-            
-            throw new Error('Could not find domToWorkspace function');
+        // Get next block in sequence if any
+        if (typeof block.getNextBlock === 'function') {
+          const nextBlock = block.getNextBlock();
+          if (nextBlock) {
+            connections['next'] = nextBlock.id;
           }
-        };
-        
-        // Convert text to DOM and apply to workspace
-        const xmlDom = xmlUtilities.textToDom(xmlText);
-        xmlUtilities.domToWorkspace(xmlDom, workspace);
-        
-        // Re-add listeners
-        workspace.addChangeListener(changeListener);
-        
-        // Reset flag
-        applyingChanges = false;
-        
-        console.log('Successfully applied shared state to workspace');
-      } catch (error) {
-        console.error('Error applying shared state:', error);
-        // Reset flags in case of error
-        applyingChanges = false;
-        
-        // Re-add listeners in case they were removed
-        try {
-          workspace.addChangeListener(changeListener);
-        } catch (e) {
-          console.error('Error re-adding change listener:', e);
         }
+        
+        // Get parent block if any
+        if (typeof block.getParent === 'function') {
+          const parentBlock = block.getParent();
+          if (parentBlock) {
+            connections['parent'] = parentBlock.id;
+          }
+        }
+        
+        // Serialize field values
+        const fields: Record<string, any> = {};
+        
+        // Safely get field values
+        if (typeof block.getFields === 'function') {
+          // Use getFields if available
+          const blockFields = block.getFields();
+          for (const fieldName in blockFields) {
+            const field = blockFields[fieldName];
+            if (field && typeof field.getValue === 'function') {
+              fields[fieldName] = field.getValue();
+            }
+          }
+        } else if (block.inputList && Array.isArray(block.inputList)) {
+          // Fallback: try to extract fields from inputList
+          block.inputList.forEach((input: any) => {
+            if (input && input.fieldRow && Array.isArray(input.fieldRow)) {
+              input.fieldRow.forEach((field: any) => {
+                if (field && field.name && typeof field.getValue === 'function') {
+                  fields[field.name] = field.getValue();
+                }
+              });
+            }
+          });
+        }
+        
+        // Return the serialized block data
+        return {
+          id: block.id,
+          type: block.type,
+          x: position.x,
+          y: position.y,
+          fields: fields,
+          connections: connections,
+          enabled: !block.disabled,
+          collapsed: !!block.collapsed,
+          deletable: block.deletable !== false,
+          editable: block.editable !== false,
+          movable: block.movable !== false,
+          inputsInline: !!block.inputsInline
+        };
+      } catch (error) {
+        console.error('Error serializing block:', error, block?.id || 'unknown');
+        // Return a minimal valid block object to prevent further errors
+        return block?.id ? {
+          id: block.id,
+          type: block.type || 'unknown',
+          x: 0,
+          y: 0,
+          fields: {},
+          connections: {},
+          enabled: true,
+          collapsed: false,
+          deletable: true,
+          editable: true,
+          movable: true,
+          inputsInline: false
+        } : null;
       }
     };
-
-    // Function to sync workspace to shared document
-    const syncToSharedState = () => {
+    
+    // Function to apply a block update from shared state
+    const applyBlockFromSharedState = (blockData: any) => {
+      if (applyingChanges) return null;
+      
       try {
-        if (applyingChanges) return; // Don't sync if we're applying changes
-        
-        console.log('Syncing workspace to shared state');
-        
-        // Set the flag to prevent recursive updates
         applyingChanges = true;
         
-        // Access XML utilities, using explicitly provided ones first
-        const xmlUtilities = {
-          workspaceToDom: (ws: any) => {
-            // First try explicit XML utilities
-            if (BlocklyXml && typeof BlocklyXml.workspaceToDom === 'function') {
-              return BlocklyXml.workspaceToDom(ws);
-            }
-            
-            // Then try Blockly.Xml
-            if (Blockly && Blockly.Xml && typeof Blockly.Xml.workspaceToDom === 'function') {
-              return Blockly.Xml.workspaceToDom(ws);
-            }
-            
-            // Finally try global Blockly
-            if (typeof window !== 'undefined' && 
-                (window as any).Blockly && 
-                (window as any).Blockly.Xml && 
-                typeof (window as any).Blockly.Xml.workspaceToDom === 'function') {
-              return (window as any).Blockly.Xml.workspaceToDom(ws);
-            }
-            
-            throw new Error('Could not find workspaceToDom function');
-          },
-          domToText: (dom: any) => {
-            // First try explicit XML utilities
-            if (BlocklyXml && typeof BlocklyXml.domToText === 'function') {
-              return BlocklyXml.domToText(dom);
-            }
-            
-            // Then try Blockly.Xml
-            if (Blockly && Blockly.Xml && typeof Blockly.Xml.domToText === 'function') {
-              return Blockly.Xml.domToText(dom);
-            }
-            
-            // Finally try global Blockly
-            if (typeof window !== 'undefined' && 
-                (window as any).Blockly && 
-                (window as any).Blockly.Xml && 
-                typeof (window as any).Blockly.Xml.domToText === 'function') {
-              return (window as any).Blockly.Xml.domToText(dom);
-            }
-            
-            throw new Error('Could not find domToText function');
+        // Skip XML data - it should be an object not a string
+        if (typeof blockData === 'string' && blockData.includes('xmlns="https://developers.google.com/blockly/xml"')) {
+          console.warn('Invalid block data: XML format detected. Skipping.');
+          return null;
+        }
+        
+        if (!blockData || !blockData.id || !blockData.type) {
+          console.warn('Invalid block data:', blockData);
+          return null;
+        }
+        
+        // First, find if this block already exists
+        let block = workspace.getBlockById(blockData.id);
+        
+        // If block doesn't exist, create it
+        if (!block) {
+          try {
+            block = workspace.newBlock(blockData.type, blockData.id);
+            // Prevent events during initialization
+            block.initSvg();
+            block.render();
+          } catch (error) {
+            console.error(`Failed to create block of type: ${blockData.type}`, error);
+            return null;
           }
-        };
+        }
         
-        // Convert workspace to XML DOM
-        const dom = xmlUtilities.workspaceToDom(workspace);
+        // Update position
+        if (typeof blockData.x === 'number' && typeof blockData.y === 'number') {
+          try {
+            block.moveBy(blockData.x - block.getRelativeToSurfaceXY().x, 
+                          blockData.y - block.getRelativeToSurfaceXY().y);
+          } catch (error) {
+            console.warn('Error updating block position:', error);
+          }
+        }
         
-        // Convert DOM to text
-        const text = xmlUtilities.domToText(dom);
+        // Update collapsed state safely
+        if (blockData.hasOwnProperty('collapsed')) {
+          try {
+            // Check if collapsed state is different
+            if (!!blockData.collapsed !== !!block.collapsed) {
+              block.setCollapsed(!!blockData.collapsed);
+            }
+          } catch (error) {
+            console.warn(`Error setting collapsed state for block ${blockData.id}:`, error);
+            // Don't throw error here, continue with other updates
+          }
+        }
         
-        // Update the shared state
-        console.log('Updating shared workspace state');
-        sharedBlocks.set('workspace', text);
+        // Update fields
+        if (blockData.fields) {
+          try {
+            for (const fieldName in blockData.fields) {
+              const field = block.getField(fieldName);
+              if (field && typeof field.getValue === 'function' && 
+                  typeof field.setValue === 'function') {
+                const newValue = blockData.fields[fieldName];
+                if (newValue !== undefined && newValue !== field.getValue()) {
+                  field.setValue(newValue);
+                }
+              }
+            }
+          } catch (error) {
+            console.warn('Error updating block fields:', error);
+          }
+        }
         
-        // Reset flag
-        applyingChanges = false;
-      } catch (err) {
-        console.error('Error updating shared state:', err);
-        // Reset flag in case of error
+        // Update enabled/disabled state
+        if (blockData.hasOwnProperty('enabled')) {
+          try {
+            block.setEnabled(blockData.enabled);
+          } catch (error) {
+            console.warn(`Error setting enabled state for block ${blockData.id}:`, error);
+          }
+        }
+        
+        // Update editable state
+        if (blockData.hasOwnProperty('editable')) {
+          try {
+            block.setEditable(blockData.editable);
+          } catch (error) {
+            console.warn(`Error setting editable state for block ${blockData.id}:`, error);
+          }
+        }
+        
+        // Update movable state
+        if (blockData.hasOwnProperty('movable')) {
+          try {
+            block.setMovable(blockData.movable);
+          } catch (error) {
+            console.warn(`Error setting movable state for block ${blockData.id}:`, error);
+          }
+        }
+        
+        // Update deletable state
+        if (blockData.hasOwnProperty('deletable')) {
+          try {
+            block.setDeletable(blockData.deletable);
+          } catch (error) {
+            console.warn(`Error setting deletable state for block ${blockData.id}:`, error);
+          }
+        }
+        
+        // Update inputs inline state
+        if (blockData.hasOwnProperty('inputsInline')) {
+          try {
+            block.setInputsInline(blockData.inputsInline);
+          } catch (error) {
+            console.warn(`Error setting inputs inline for block ${blockData.id}:`, error);
+          }
+        }
+        
+        return block;
+      } catch (error) {
+        console.error('Error applying block from shared state:', error, blockData?.id);
+        return null;
+      } finally {
         applyingChanges = false;
       }
     };
     
+    // Function to connect blocks according to their connection data
+    const applyConnectionsFromSharedState = () => {
+      if (applyingChanges) return;
+      
+      try {
+        applyingChanges = true;
+        
+        // Process connections for each block
+        sharedBlocks.forEach((blockData: any, blockId: string) => {
+          // Skip if no connections defined
+          if (!blockData.connections) return;
+          
+          const block = workspace.getBlockById(blockId);
+          if (!block) return;
+          
+          // Process all connections
+          for (const inputName in blockData.connections) {
+            const targetBlockId = blockData.connections[inputName];
+            if (!targetBlockId) continue;
+            
+            const targetBlock = workspace.getBlockById(targetBlockId);
+            if (!targetBlock) continue;
+            
+            // Handle 'next' connection (sequence)
+            if (inputName === 'next') {
+              if (block.getNextBlock() !== targetBlock) {
+                // Connect only if not already connected
+                const connection = block.nextConnection;
+                if (connection && connection.targetConnection !== targetBlock.previousConnection) {
+                  connection.connect(targetBlock.previousConnection);
+                }
+              }
+              continue;
+            }
+            
+            // Handle input connections
+            const input = block.getInput(inputName);
+            if (input?.connection) {
+              const currentTarget = input.connection.targetBlock();
+              if (currentTarget !== targetBlock) {
+                // Connect only if not already connected
+                if (input.connection.targetConnection !== targetBlock.outputConnection) {
+                  input.connection.connect(targetBlock.outputConnection);
+                }
+              }
+            }
+          }
+        });
+      } catch (error) {
+        console.error('Error applying connections from shared state:', error);
+      } finally {
+        applyingChanges = false;
+      }
+    };
+    
+    // Function to sync all blocks in the workspace to shared state
+    const syncAllBlocksToSharedState = () => {
+      if (applyingChanges) return;
+      
+      try {
+        applyingChanges = true;
+        
+        // Get all blocks in the workspace
+        const allBlocks = workspace.getAllBlocks();
+        
+        // Sync each block
+        allBlocks.forEach((block: any) => {
+          const blockData = serializeBlock(block);
+          if (blockData) {
+            sharedBlocks.set(blockData.id, blockData);
+          }
+        });
+        
+        // Track block IDs to detect deleted blocks
+        const blockIds = new Set(allBlocks.map((block: any) => block.id));
+        
+        // Find deleted blocks by comparing with shared state
+        sharedBlocks.forEach((_: any, blockId: string) => {
+          if (!blockIds.has(blockId)) {
+            sharedBlocks.delete(blockId);
+          }
+        });
+      } catch (error) {
+        console.error('Error syncing all blocks:', error);
+      } finally {
+        applyingChanges = false;
+      }
+    };
+    
+    // Function to sync a single block to the shared state
+    const syncBlockToSharedState = (block: any) => {
+      if (!block || applyingChanges) return;
+      
+      try {
+        const blockData = serializeBlock(block);
+        if (blockData) {
+          sharedBlocks.set(blockData.id, blockData);
+        }
+      } catch (error) {
+        console.error('Error syncing block to shared state:', error);
+      }
+    };
+    
+    // Function to handle variables
+    const syncVariablesToSharedState = () => {
+      if (applyingChanges) return;
+      
+      try {
+        applyingChanges = true;
+        
+        // Get all variables
+        const variableMap = workspace.getVariableMap();
+        const variables = variableMap.getAllVariables();
+        
+        // Convert to an object for easier handling
+        const variableData: Record<string, any> = {};
+        variables.forEach((variable: any) => {
+          variableData[variable.getId()] = {
+            id: variable.getId(),
+            name: variable.name,
+            type: variable.type
+          };
+        });
+        
+        // Update the shared state
+        sharedVariables.set('variables', variableData);
+      } catch (error) {
+        console.error('Error syncing variables:', error);
+      } finally {
+        applyingChanges = false;
+      }
+    };
+    
+    // Function to apply variables from shared state
+    const applyVariablesFromSharedState = () => {
+      if (applyingChanges) return;
+      
+      try {
+        applyingChanges = true;
+        
+        const variableData = sharedVariables.get('variables') as Record<string, any>;
+        if (!variableData) return;
+        
+        const variableMap = workspace.getVariableMap();
+        
+        // Create or update variables
+        for (const varId in variableData) {
+          if (Object.prototype.hasOwnProperty.call(variableData, varId)) {
+            const variable = variableData[varId];
+            
+            // Check if variable exists
+            const existingVar = variableMap.getVariableById(varId);
+            
+            if (!existingVar) {
+              // Create new variable
+              workspace.createVariable(variable.name, variable.type, varId);
+            } else if (existingVar.name !== variable.name) {
+              // Rename variable if name changed
+              workspace.renameVariableById(varId, variable.name);
+            }
+          }
+        }
+        
+        // Remove variables not in shared state
+        variableMap.getAllVariables().forEach((variable: any) => {
+          const varId = variable.getId();
+          if (varId && variableData && !variableData[varId]) {
+            workspace.deleteVariableById(varId);
+          }
+        });
+      } catch (error) {
+        console.error('Error applying variables from shared state:', error);
+      } finally {
+        applyingChanges = false;
+      }
+    };
+        
     // Set up a listener for changes to the Blockly workspace
     const changeListener = (event: any) => {
       // Skip during apply operations
@@ -469,94 +705,175 @@ export function setupBlocklySync(workspace: any, ydoc: Y.Doc, blocklyApi?: any) 
       // Ensure event.type is treated as a string
       const eventType = String(event.type || '');
       
-      // Detect drag operations
+      // Handle drag operations
       if (eventType === 'drag' || 
-          (Blockly && Blockly.Events && Blockly.Events.BLOCK_DRAG && eventType === Blockly.Events.BLOCK_DRAG)) {
-        isDragging = event.isStart;
+          (Blockly?.Events?.BLOCK_DRAG && eventType === Blockly.Events.BLOCK_DRAG)) {
         
-        // When drag ends, synchronize the workspace
-        if (!event.isStart) {
-          console.log('Drag ended, synchronizing workspace');
-          // Use timeout to ensure the blocks have settled into position
-          setTimeout(() => {
-            syncToSharedState();
-          }, 50);
+        if (event.isStart) {
+          isDragging = true;
+          if (event.blockId) {
+            draggingBlockId = event.blockId;
+            
+            // Update awareness to show other users that we're dragging this block
+            const localState = awareness.getLocalState();
+            if (localState) {
+              const block = workspace.getBlockById(event.blockId);
+              if (block) {
+                const xy = block.getRelativeToSurfaceXY();
+                awareness.setLocalState({
+                  ...localState,
+                  draggingBlock: {
+                    id: event.blockId,
+                    x: xy.x,
+                    y: xy.y
+                  }
+                });
+              }
+            }
+          }
+        } else {
+          // When drag ends
+          isDragging = false;
+          
+          if (draggingBlockId) {
+            // Sync the dragged block
+            const block = workspace.getBlockById(draggingBlockId);
+            if (block) {
+              syncBlockToSharedState(block);
+            }
+            
+            // Clear dragging state in awareness
+            const localState = awareness.getLocalState();
+            if (localState) {
+              awareness.setLocalState({
+                ...localState,
+                draggingBlock: null
+              });
+            }
+            
+            draggingBlockId = null;
+          }
         }
         return;
       }
       
-      // Skip synchronization during drag operations
-      if (isDragging) return;
+      // Skip during drag operations (except for the end)
+      if (isDragging && eventType !== 'endDrag') return;
       
-      // These are the event types we care about for synchronization
-      const syncEvents = [
-        'change', 'create', 'delete', 'move', 
-        'var_create', 'var_delete', 'var_rename'
-      ];
-      
-      // Check if this is an event type we should sync
-      const shouldSync = syncEvents.includes(eventType) || 
-        (Blockly && Blockly.Events && (
-          eventType === Blockly.Events.BLOCK_CHANGE ||
-          eventType === Blockly.Events.BLOCK_CREATE ||
-          eventType === Blockly.Events.BLOCK_DELETE ||
-          eventType === Blockly.Events.BLOCK_MOVE ||
-          eventType === Blockly.Events.VAR_CREATE ||
-          eventType === Blockly.Events.VAR_DELETE ||
-          eventType === Blockly.Events.VAR_RENAME
-        ));
-      
-      if (shouldSync) {
-        // Use setTimeout to batch rapid changes and reduce network traffic
-        setTimeout(() => {
-          syncToSharedState();
-        }, 10);
+      // Handle different event types
+      switch (eventType) {
+        case 'create':
+        case Blockly?.Events?.BLOCK_CREATE:
+          if (event.blockId) {
+            const block = workspace.getBlockById(event.blockId);
+            if (block) {
+              setTimeout(() => syncBlockToSharedState(block), 10);
+            }
+          }
+          break;
+          
+        case 'change':
+        case Blockly?.Events?.BLOCK_CHANGE:
+          if (event.blockId) {
+            const block = workspace.getBlockById(event.blockId);
+            if (block) {
+              setTimeout(() => syncBlockToSharedState(block), 10);
+            }
+          }
+          break;
+          
+        case 'move':
+        case Blockly?.Events?.BLOCK_MOVE:
+          if (event.blockId) {
+            const block = workspace.getBlockById(event.blockId);
+            if (block) {
+              setTimeout(() => syncBlockToSharedState(block), 10);
+            }
+          }
+          break;
+          
+        case 'delete':
+        case Blockly?.Events?.BLOCK_DELETE:
+          if (event.blockId && sharedBlocks.get(event.blockId)) {
+            sharedBlocks.delete(event.blockId);
+          }
+          break;
+          
+        case 'var_create':
+        case 'var_delete':
+        case 'var_rename':
+        case Blockly?.Events?.VAR_CREATE:
+        case Blockly?.Events?.VAR_DELETE:
+        case Blockly?.Events?.VAR_RENAME:
+          setTimeout(() => syncVariablesToSharedState(), 10);
+          break;
+          
+        default:
+          // For other events, sync everything
+          if (!isDragging) {
+            setTimeout(() => {
+              syncAllBlocksToSharedState();
+              syncVariablesToSharedState();
+            }, 10);
+          }
+          break;
       }
     };
     
     // Add the change listener to the workspace
     workspace.addChangeListener(changeListener);
     
-    // Listen for changes from other clients
-    sharedBlocks.observe(() => {
-      // Apply the shared state if we're not already applying changes
-      if (!applyingChanges) {
-        if (isDragging) {
-          console.log('Received change during drag, will apply after drag completes');
-          // Schedule an update after drag completes
-          const checkDragComplete = () => {
-            if (!isDragging) {
-              applySharedState();
-              return true; // done
-            }
-            return false; // not done yet
-          };
-          
-          // Check every 100ms if drag is complete
-          const intervalId = setInterval(() => {
-            if (checkDragComplete()) {
-              clearInterval(intervalId);
-            }
-          }, 100);
-          
-          // Safety cleanup after 5 seconds
-          setTimeout(() => {
-            clearInterval(intervalId);
-          }, 5000);
-        } else {
-          // Apply immediately if not dragging
-          applySharedState();
+    // Listen for changes to the shared blocks
+    sharedBlocks.observe((event: any, transaction: any) => {
+      if (applyingChanges || transaction.origin === ydoc.clientID) return;
+      
+      // If we're dragging, queue the updates for after we finish
+      if (isDragging) return;
+      
+      // Apply each changed block
+      event.keys.forEach((key: any, blockId: string) => {
+        if (key.action === 'add' || key.action === 'update') {
+          const blockData = sharedBlocks.get(blockId);
+          if (blockData) {
+            applyBlockFromSharedState(blockData);
+          }
+        } else if (key.action === 'delete') {
+          // Delete the block if it exists
+          const block = workspace.getBlockById(blockId);
+          if (block) {
+            applyingChanges = true;
+            block.dispose(false);
+            applyingChanges = false;
+          }
         }
-      }
+      });
+      
+      // After applying individual blocks, apply connections
+      setTimeout(() => applyConnectionsFromSharedState(), 10);
     });
     
-    // Initial application of shared state if it exists
-    if (sharedBlocks.get('workspace')) {
-      console.log('Found existing workspace state, applying...');
-      // Apply with short delay to ensure workspace is fully initialized
-      setTimeout(() => {
-        applySharedState();
-      }, 500);
+    // Listen for changes to the shared variables
+    sharedVariables.observe((event: any, transaction: any) => {
+      if (applyingChanges || transaction.origin === ydoc.clientID) return;
+      applyVariablesFromSharedState();
+    });
+    
+    // Initial synchronization
+    if (sharedBlocks.size > 0) {
+      // Apply blocks first
+      sharedBlocks.forEach((blockData: any, blockId: string) => {
+        applyBlockFromSharedState(blockData);
+      });
+      
+      // Then apply connections
+      setTimeout(() => applyConnectionsFromSharedState(), 50);
+      
+      // Apply variables
+      applyVariablesFromSharedState();
+    } else {
+      // No existing blocks, sync current workspace to shared state
+      syncAllBlocksToSharedState();
+      syncVariablesToSharedState();
     }
     
     // Return cleanup function
@@ -569,130 +886,208 @@ export function setupBlocklySync(workspace: any, ydoc: Y.Doc, blocklyApi?: any) 
   }
 }
 
-export function setupCursorTracking(awareness: Awareness, element: HTMLElement) {
-  // Get our client ID
-  const ydoc = awareness.doc;
-  const clientId = ydoc.clientID;
-  
-  // Update cursor position on mouse move
-  element.addEventListener('mousemove', (e) => {
-    const localState = awareness.getLocalState();
-    if (localState) {
-      const rect = element.getBoundingClientRect();
-      const x = e.clientX - rect.left;
-      const y = e.clientY - rect.top;
-      
-      // Make sure we don't overwrite the draggingBlock state
-      awareness.setLocalState({
-        ...localState,
-        cursor: { x, y }
-      });
-      
-      // If user is dragging a block, update its position in the awareness
-      if (localState.draggingBlock) {
-        const workspace = Blockly.getMainWorkspace();
-        if (workspace) {
-          const block = workspace.getBlockById(localState.draggingBlock.id);
-          if (block) {
-            const xy = block.getRelativeToSurfaceXY();
-            awareness.setLocalState({
-              ...localState,
-              cursor: { x, y },
-              draggingBlock: {
-                ...localState.draggingBlock,
-                x: xy.x,
-                y: xy.y
-              }
-            });
-          }
-        }
-      }
-    }
-  });
-  
-  // Clear cursor when mouse leaves
-  element.addEventListener('mouseleave', () => {
-    const localState = awareness.getLocalState();
-    if (localState) {
-      awareness.setLocalState({
-        ...localState,
-        cursor: null
-      });
-    }
-  });
-  
-  // Create and update cursor elements for other users
-  const cursors: {[key: number]: HTMLElement} = {};
-  
-  awareness.on('change', () => {
-    const states = awareness.getStates();
+/**
+ * Sets up cursor tracking for collaborative editing, showing other users' cursors
+ * in the workspace in real-time.
+ */
+export function setupCursorTracking(
+  element: HTMLElement,
+  workspace: any,
+  ydoc: Y.Doc,
+  awareness: Awareness,
+  userInfo?: { name?: string; color?: string }
+) {
+  try {
+    // Get the client ID
+    const clientId = ydoc.clientID;
     
-    // Create or update cursor for each user
-    states.forEach((state: any, id: number) => {
+    // Set default user info if not provided
+    const name = userInfo?.name || `User ${clientId}`;
+    const color = userInfo?.color || generateRandomColor(clientId);
+    
+    // Set local state with user info
+    awareness.setLocalState({
+      user: { 
+        name: name || `User ${clientId}`, 
+        color: color || generateRandomColor(clientId), 
+        clientId 
+      },
+      cursor: null,
+      draggingBlock: null,
+    });
+    
+    // Object to store cursor elements for other users
+    const cursorElements: Record<number, HTMLElement> = {};
+    
+    // Create a cursor element for a user
+    const createCursorElement = (state: any) => {
+      const cursorEl = document.createElement('div');
+      cursorEl.className = 'remote-cursor';
+      cursorEl.style.position = 'absolute';
+      cursorEl.style.width = '20px';
+      cursorEl.style.height = '20px';
+      cursorEl.style.zIndex = '1000';
+      cursorEl.style.pointerEvents = 'none'; // Don't interfere with workspace interactions
+      
+      // Create the cursor shape (arrow pointer)
+      const cursorShape = document.createElement('div');
+      cursorShape.style.width = '0';
+      cursorShape.style.height = '0';
+      cursorShape.style.borderLeft = '8px solid transparent';
+      cursorShape.style.borderRight = '8px solid transparent';
+      cursorShape.style.borderBottom = '16px solid ' + state.user.color;
+      cursorShape.style.transform = 'rotate(-135deg)';
+      cursorShape.style.position = 'absolute';
+      cursorShape.style.left = '0';
+      cursorShape.style.top = '0';
+      cursorEl.appendChild(cursorShape);
+      
+      // Add name label
+      const nameEl = document.createElement('div');
+      nameEl.className = 'remote-cursor-name';
+      nameEl.textContent = state.user.name;
+      nameEl.style.position = 'absolute';
+      nameEl.style.top = '-25px';
+      nameEl.style.left = '15px';
+      nameEl.style.backgroundColor = state.user.color;
+      nameEl.style.color = 'white';
+      nameEl.style.padding = '2px 5px';
+      nameEl.style.borderRadius = '4px';
+      nameEl.style.fontSize = '12px';
+      nameEl.style.whiteSpace = 'nowrap';
+      nameEl.style.userSelect = 'none';
+      cursorEl.appendChild(nameEl);
+      
+      return cursorEl;
+    };
+    
+    // Update or create cursor for a user
+    const updateCursor = (clientId: number, state: any) => {
       // Skip our own cursor
-      if (id === clientId) return;
+      if (clientId === ydoc.clientID) return;
       
-      if (state.cursor) {
-        // Create cursor element if it doesn't exist
-        if (!cursors[id]) {
-          const cursor = document.createElement('div');
-          cursor.className = 'remote-cursor';
-          cursor.style.position = 'absolute';
-          cursor.style.width = '10px';
-          cursor.style.height = '10px';
-          cursor.style.borderRadius = '50%';
-          cursor.style.zIndex = '1000';
-          cursor.style.pointerEvents = 'none';
-          
-          // Create label with user name
-          const label = document.createElement('div');
-          label.className = 'remote-cursor-label';
-          label.style.position = 'absolute';
-          label.style.top = '-20px';
-          label.style.left = '10px';
-          label.style.borderRadius = '3px';
-          label.style.padding = '2px 5px';
-          label.style.fontSize = '12px';
-          label.style.color = 'white';
-          label.style.whiteSpace = 'nowrap';
-          
-          cursor.appendChild(label);
-          element.appendChild(cursor);
-          cursors[id] = cursor;
+      // Remove cursor if state is null or cursor position is null
+      if (!state || !state.cursor) {
+        if (cursorElements[clientId]) {
+          cursorElements[clientId].remove();
+          delete cursorElements[clientId];
         }
-        
-        // Update cursor position and style
-        const cursor = cursors[id];
-        cursor.style.left = `${state.cursor.x}px`;
-        cursor.style.top = `${state.cursor.y}px`;
-        cursor.style.backgroundColor = state.color || '#ff0000';
-        
-        // Update label
-        const label = cursor.querySelector('.remote-cursor-label');
-        if (label) {
-          (label as HTMLElement).style.backgroundColor = state.color || '#ff0000';
-          (label as HTMLElement).textContent = state.name || `User ${id}`;
+        return;
+      }
+      
+      // Position relative to workspace
+      const { x, y } = state.cursor;
+      
+      // Get or create cursor element
+      let cursorEl = cursorElements[clientId];
+      if (!cursorEl) {
+        cursorEl = createCursorElement(state);
+        element.appendChild(cursorEl);
+        cursorElements[clientId] = cursorEl;
+      }
+      
+      // Update cursor position
+      cursorEl.style.left = `${x - 5}px`;
+      cursorEl.style.top = `${y - 5}px`;
+      
+      // If the user is dragging a block, add highlight
+      if (state.draggingBlock) {
+        cursorEl.classList.add('dragging');
+        // Could add more visual indicators here if needed
+      } else {
+        cursorEl.classList.remove('dragging');
+      }
+    };
+    
+    // Update all cursors from awareness
+    const updateCursors = () => {
+      const states = awareness.getStates() as Map<number, any>;
+      
+      // Get all client IDs with state
+      const clientIds = Array.from(states.keys());
+      
+      // Update each cursor
+      clientIds.forEach((clientId) => {
+        const state = states.get(clientId);
+        updateCursor(clientId, state);
+      });
+      
+      // Remove cursors for clients that no longer have state
+      Object.keys(cursorElements).forEach((clientIdStr) => {
+        const clientId = parseInt(clientIdStr, 10);
+        if (!states.has(clientId)) {
+          cursorElements[clientId].remove();
+          delete cursorElements[clientId];
         }
-      } else if (cursors[id]) {
-        // Remove cursor when user's cursor is null (left the area)
-        cursors[id].remove();
-        delete cursors[id];
+      });
+    };
+    
+    // Track mouse position in the workspace
+    const trackMousePosition = (e: MouseEvent) => {
+      try {
+        // Get position relative to workspace
+        const rect = element.getBoundingClientRect();
+        const x = e.clientX - rect.left;
+        const y = e.clientY - rect.top;
+        
+        // Update awareness with new cursor position
+        const state = awareness.getLocalState();
+        if (state) {
+          awareness.setLocalState({
+            ...state,
+            cursor: { x, y }
+          });
+        }
+      } catch (err) {
+        console.error('Error tracking mouse position:', err);
+      }
+    };
+    
+    // Add mouse move listener
+    element.addEventListener('mousemove', trackMousePosition);
+    
+    // Add mouse leave listener
+    element.addEventListener('mouseleave', () => {
+      const localState = awareness.getLocalState();
+      if (localState) {
+        awareness.setLocalState({
+          ...localState,
+          cursor: null
+        });
       }
     });
     
-    // Remove cursors for users who are no longer in the room
-    Object.keys(cursors).forEach(id => {
-      if (!states.has(parseInt(id))) {
-        cursors[parseInt(id)].remove();
-        delete cursors[parseInt(id)];
-      }
-    });
-  });
-  
-  // Return cleanup function
-  return () => {
-    element.removeEventListener('mousemove', () => {});
-    element.removeEventListener('mouseleave', () => {});
-    Object.values(cursors).forEach(cursor => cursor.remove());
-  };
+    // Listen for awareness changes
+    awareness.on('change', updateCursors);
+    
+    // Initial update
+    updateCursors();
+    
+    // Return cleanup function
+    return () => {
+      // Remove event listeners
+      element.removeEventListener('mousemove', trackMousePosition);
+      
+      // Remove all cursor elements
+      Object.values(cursorElements).forEach(el => el.remove());
+      
+      // Stop listening for awareness changes
+      awareness.off('change', updateCursors);
+      
+      // Clear local state
+      awareness.setLocalState(null);
+    };
+  } catch (error) {
+    console.error('Error setting up cursor tracking:', error);
+    return () => {};
+  }
+}
+
+/**
+ * Generates a random color based on the client ID for consistent color assignment
+ */
+function generateRandomColor(seed: number): string {
+  // Simple hash function to get deterministic but random-appearing values
+  const hash = seed % 360;
+  return `hsl(${hash}, 80%, 60%)`;
 }
