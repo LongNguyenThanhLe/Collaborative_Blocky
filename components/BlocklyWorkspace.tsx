@@ -22,6 +22,7 @@ const BlocklyWorkspace: React.FC<BlocklyWorkspaceProps> = ({
   const [userCount, setUserCount] = useState<number>(1);
   const [isConnected, setIsConnected] = useState<boolean>(false);
   const [isLoading, setIsLoading] = useState<boolean>(true);
+  const [debugInfo, setDebugInfo] = useState<string>('');
 
   // Update parent component with connection status
   useEffect(() => {
@@ -36,6 +37,37 @@ const BlocklyWorkspace: React.FC<BlocklyWorkspaceProps> = ({
       onUserCountChange(userCount);
     }
   }, [userCount, onUserCountChange]);
+
+  // Ensure Blockly has time to initialize in production
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      // Force resize window to ensure Blockly renders correctly
+      const handleResize = () => {
+        if (workspace) {
+          try {
+            workspace.resize();
+            setDebugInfo("Resize triggered");
+          } catch (err) {
+            console.error("Error during resize:", err);
+          }
+        }
+      };
+      
+      // Wait for DOM to be fully loaded
+      window.addEventListener('load', () => {
+        if (blocklyDiv.current) {
+          setDebugInfo("Window loaded, div exists");
+          setTimeout(handleResize, 500);
+        }
+      });
+      
+      window.addEventListener('resize', handleResize);
+      
+      return () => {
+        window.removeEventListener('resize', handleResize);
+      };
+    }
+  }, [workspace]);
 
   useEffect(() => {
     let blocklyInstance: any = null;
@@ -55,9 +87,11 @@ const BlocklyWorkspace: React.FC<BlocklyWorkspaceProps> = ({
       
       try {
         setIsLoading(true);
+        setDebugInfo("Loading Blockly...");
         
         // Import Blockly and necessary components
         const Blockly = await import('blockly');
+        setDebugInfo("Blockly loaded");
         const BlocklyJS = await import('blockly/javascript');
         
         // Explicitly import Blockly XML utilities - use correct path
@@ -66,6 +100,7 @@ const BlocklyWorkspace: React.FC<BlocklyWorkspaceProps> = ({
         
         // Make sure we have all the blocks we need
         await import('blockly/blocks');
+        setDebugInfo("Blockly blocks loaded");
 
         // Apply custom category styling after load
         const applyCustomStyles = () => {
@@ -137,10 +172,18 @@ const BlocklyWorkspace: React.FC<BlocklyWorkspaceProps> = ({
         // Clear any previous workspace
         if (blocklyDiv.current) {
           blocklyDiv.current.innerHTML = '';
+          // Ensure the div is visible and has dimensions
+          blocklyDiv.current.style.width = '100%';
+          blocklyDiv.current.style.height = '600px'; // Set explicit height
+          blocklyDiv.current.style.display = 'block';
+          blocklyDiv.current.style.visibility = 'visible';
+          setDebugInfo("Blockly div prepared");
         }
         
         // Create the Blockly workspace - Fix the null issue by asserting non-null
+        setDebugInfo("Injecting Blockly...");
         const newWorkspace = Blockly.inject(blocklyDiv.current!, options);
+        setDebugInfo("Blockly injected successfully");
         setWorkspace(newWorkspace);
         blocklyInstance = newWorkspace;
         
@@ -242,9 +285,11 @@ const BlocklyWorkspace: React.FC<BlocklyWorkspaceProps> = ({
         
         isInitialized = true;
         setIsLoading(false);
+        setDebugInfo("Blockly fully initialized");
       } catch (error) {
         console.error('Error initializing Blockly:', error);
         setIsLoading(false);
+        setDebugInfo(`Error: ${error instanceof Error ? error.message : String(error)}`);
       }
     };
     
@@ -391,6 +436,9 @@ const BlocklyWorkspace: React.FC<BlocklyWorkspaceProps> = ({
       {isLoading && (
         <div className={styles.blocklyLoading}>
           Loading Blockly workspace...
+          <div className={styles.debugInfo}>
+            {debugInfo}
+          </div>
         </div>
       )}
       

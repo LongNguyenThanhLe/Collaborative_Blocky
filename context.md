@@ -35,6 +35,8 @@ BlocklyCollab is an enhanced version of Google's Blockly programming environment
   - Improved block serialization for better synchronization
   - Enhanced client-side rendering of Blockly workspace for production environment
   - Fixed provider null check in collaboration setup
+  - Added debugging information and explicit workspace dimensions
+  - Improved visibility of Blockly workspace in production environment
 
 ## Environment Variables
 - Firebase configuration variables for Firestore

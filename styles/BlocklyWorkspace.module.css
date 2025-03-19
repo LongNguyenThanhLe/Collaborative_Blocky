@@ -1,19 +1,19 @@
 .blocklyContainer {
-  display: flex;
-  flex-direction: column;
   width: 100%;
   height: 100%;
-  min-height: calc(100vh - 100px);
+  display: flex;
+  flex-direction: column;
   position: relative;
-  overflow: hidden;
+  min-height: 600px; /* Ensure minimum height */
 }
 
 .blocklyDiv {
   width: 100%;
-  height: 100%;
-  min-height: 600px;
-  background-color: #f9f9f9;
-  border-radius: 8px;
+  flex-grow: 1;
+  min-height: 600px; /* Explicit minimum height */
+  position: relative;
+  background-color: #f5f5f5; /* Light background to see the area */
+  border: 1px solid #ddd; /* Border to visualize the container */
 }
 
 .blocklyLoading {
@@ -23,13 +23,26 @@
   right: 0;
   bottom: 0;
   display: flex;
+  flex-direction: column;
   justify-content: center;
   align-items: center;
-  background-color: rgba(255, 255, 255, 0.7);
+  background-color: rgba(255, 255, 255, 0.9);
   font-size: 18px;
   font-weight: 500;
   color: #4285F4;
   z-index: 10;
+}
+
+.debugInfo {
+  margin-top: 10px;
+  font-size: 14px;
+  color: #666;
+  max-width: 80%;
+  text-align: center;
+  background-color: #f0f0f0;
+  padding: 8px;
+  border-radius: 4px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
 }
 
 /* Toolbar styling */
