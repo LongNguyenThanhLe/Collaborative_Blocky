@@ -403,9 +403,18 @@ export async function initCollaboration(roomId: string): Promise<CollabSetup> {
  * Sets up Blockly workspace synchronization with Yjs
  * @param workspace Blockly workspace instance
  * @param ydoc Yjs document
+ * @param options Optional configuration with Blockly instance
  * @returns Cleanup function
  */
-export function setupBlocklySync(workspace: any, ydoc: Y.Doc) {
+export function setupBlocklySync(workspace: any, ydoc: Y.Doc, options?: {blockly: any}) {
+  // Get Blockly instance from options, required for operation
+  const Blockly = options?.blockly;
+  
+  if (!Blockly) {
+    console.error('Blockly is required for setupBlocklySync');
+    return () => {}; // Return empty cleanup function
+  }
+  
   // Create a shared XML map in the Yjs document
   const sharedBlocks = ydoc.getMap('blocks');
   
