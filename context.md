@@ -29,13 +29,16 @@ BlocklyCollab is an enhanced version of Google's Blockly programming environment
 - **2025-03-18**: 
   - Added modern landing page with feature highlights
   - Created login and signup pages with UI/UX improvements
-  - Prepared integration with Clerk for authentication
+  - Implemented Clerk authentication using official components and middleware
+  - Protected workspace route with Clerk authentication
   - Fixed collaboration issues: XML data errors, cursor appearance
   - Improved block serialization for better synchronization
 
 ## Environment Variables
 - Firebase configuration variables for Firestore
-- Clerk authentication credentials (to be added)
+- Clerk authentication credentials:
+  - NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY
+  - CLERK_SECRET_KEY
 
 ## Deployment
 The application is deployed on Vercel with custom domain configuration. Firebase environment variables need to be set in the Vercel project settings.

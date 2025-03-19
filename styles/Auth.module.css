@@ -54,6 +54,14 @@
   margin-bottom: 2rem;
 }
 
+.clerkContainer {
+  width: 100%;
+  /* Clerk components will use their own styling */
+  /* These styles help the container fit within our design */
+  --clerk-primary: #4285F4;
+  --clerk-primary-hover: #3367D6;
+}
+
 .authForm {
   display: flex;
   flex-direction: column;
