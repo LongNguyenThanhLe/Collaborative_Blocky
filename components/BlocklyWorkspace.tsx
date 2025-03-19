@@ -248,14 +248,18 @@ const BlocklyWorkspace: React.FC<BlocklyWorkspaceProps> = ({
               newWorkspace,
               ydoc,
               awareness,
-              { name: userEmail || `User ${Math.floor(Math.random() * 1000)}` }
+              { 
+                name: userEmail.split('@')[0] || userId,
+                email: userEmail,
+                color: generateUserColor(userId)
+              }
             );
           }
           
           // Update initial connection status
           setIsConnected(connected);
           if (connected) {
-            setCollaborationStatus('Connected to collaboration server');
+            setCollaborationStatus(`Connected to room: ${roomId}`);
           } else {
             setCollaborationStatus('Disconnected from collaboration server');
           }
@@ -267,7 +271,7 @@ const BlocklyWorkspace: React.FC<BlocklyWorkspaceProps> = ({
               
               if (event.status === 'connected') {
                 setIsConnected(true);
-                setCollaborationStatus('Connected to collaboration server');
+                setCollaborationStatus(`Connected to room: ${roomId}`);
               } else if (event.status === 'disconnected') {
                 setIsConnected(false);
                 setCollaborationStatus('Disconnected from collaboration server');
@@ -433,6 +437,22 @@ const BlocklyWorkspace: React.FC<BlocklyWorkspaceProps> = ({
         }
       ]
     };
+  };
+
+  // Generate a color based on user ID for consistent colors per user
+  const generateUserColor = (userId: string): string => {
+    // Simple hash function to generate a number from a string
+    let hash = 0;
+    for (let i = 0; i < userId.length; i++) {
+      hash = userId.charCodeAt(i) + ((hash << 5) - hash);
+    }
+    
+    // Convert to RGB color
+    const c = (hash & 0x00FFFFFF)
+      .toString(16)
+      .toUpperCase();
+    
+    return "#" + "00000".substring(0, 6 - c.length) + c;
   };
 
   return (

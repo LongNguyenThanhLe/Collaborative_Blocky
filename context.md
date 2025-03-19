@@ -50,6 +50,17 @@ BlocklyCollab is an enhanced version of Google's Blockly programming environment
   - Updated middleware to handle Firebase authentication
   - Improved documentation for environment setup
   - Applied styling updates for authentication UI
+  - Added room selection functionality with URL-based navigation
+  - Enhanced workspace UI with modern dark header and status indicators
+  - Improved real-time collaboration with better cursor tracking
+  - Added user count and connection status display
+
+## Room Selection Features
+- Users can now create or join different collaboration rooms
+- Room name is displayed in the workspace header
+- Room IDs are used in the URL for easy sharing and bookmarking
+- Each room is a separate collaboration space with its own set of blocks
+- Real-time user count shows how many people are in the same room
 
 ## Environment Variables
 - Firebase configuration variables for auth and Firestore:

@@ -38,15 +38,14 @@ This document tracks the progress of the BlocklyCollab application from start to
 - Fixed production build issues
 - Deployed to custom domain
 
-## Current Progress: Enhanced Authentication with Google Sign-In
-- Completely removed all Clerk authentication dependencies and references
-- Added Google authentication through Firebase
-- Updated login and signup pages with Google sign-in buttons
-- Enhanced user interface with properly styled Google buttons
-- Improved authentication context to support multiple sign-in methods
-- Updated collaboration features to properly identify users with their emails
-- Ensured middleware properly handles Firebase authentication
-- Cleaned up CSS to remove unused Clerk-specific styles
-- Updated package.json to remove Clerk dependencies
-- Enhanced documentation for Firebase and Google authentication setup
-- Improved environment variable examples for easier developer onboarding
+## Current Progress: Enhanced Room Selection and Collaboration UI
+- Implemented room selection functionality to enable multiple collaborative workspaces
+- Added a modal dialog for creating or joining rooms
+- Enhanced UI with a modern dark header and better status indicators
+- Improved cursor tracking to show authenticated user information
+- Added real-time connection status and user count in the workspace
+- Implemented URL-based room navigation with query parameters
+- Enhanced collaboration with user-specific colors based on user ID
+- Improved styling for better visual feedback
+- Fixed TypeScript errors for more robust code
+- Enhanced user experience with clear visual status indicators

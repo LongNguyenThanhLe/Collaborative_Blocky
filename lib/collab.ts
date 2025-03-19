@@ -3,6 +3,8 @@ import { Awareness } from 'y-protocols/awareness';
 import { WebsocketProvider } from 'y-websocket';
 import { doc, getDoc, setDoc, onSnapshot, updateDoc, collection } from "firebase/firestore";
 import { db } from './firebase';
+import { auth } from './firebase';
+import { onAuthStateChanged } from 'firebase/auth';
 // These imports are dynamically loaded at runtime
 // We're just declaring the types here for TypeScript
 declare const Blockly: any;
@@ -39,15 +41,31 @@ export async function initCollaboration(roomId: string): Promise<CollabSetup> {
   const awareness = new Awareness(ydoc);
   
   // Set the local user state with a random name and color
-  const userName = getRandomName();
-  const userColor = getRandomColor();
-  awareness.setLocalState({
-    name: userName,
-    color: userColor,
-    cursor: null,
-    draggingBlock: null, // Track if user is dragging a block
+  let userName = getRandomName();
+  let userColor = getRandomColor();
+  let userEmail = '';
+  
+  onAuthStateChanged(auth, (user) => {
+    if (user) {
+      userEmail = user.email || '';
+      awareness.setLocalState({
+        name: userName,
+        email: userEmail,
+        color: userColor,
+        cursor: null,
+        draggingBlock: null, // Track if user is dragging a block
+      });
+    } else {
+      awareness.setLocalState({
+        name: userName,
+        email: '',
+        color: userColor,
+        cursor: null,
+        draggingBlock: null, // Track if user is dragging a block
+      });
+    }
   });
-
+  
   let wsProvider: WebsocketProvider | null = null;
   let connected = false;
   
@@ -59,7 +77,7 @@ export async function initCollaboration(roomId: string): Promise<CollabSetup> {
     // In production (Vercel), use the deployed WebSocket server
     // In development, use the local server
     let serverUrl = typeof window !== 'undefined' ? 
-      process.env.NEXT_PUBLIC_WEBSOCKET_URL || 'wss://your-deployed-ws-server.onrender.com' :
+      process.env.NEXT_PUBLIC_WEBSOCKET_URL || 'wss://collaborative-blockly-ws.onrender.com' :
       'ws://localhost:1234';
       
     // For local development, fallback to localhost
@@ -160,6 +178,7 @@ export async function initCollaboration(roomId: string): Promise<CollabSetup> {
       // Add this user to the room
       await setDoc(userDocRef, {
         name: userName,
+        email: userEmail,
         color: userColor,
         lastActive: new Date().toISOString(),
         online: true
@@ -178,6 +197,7 @@ export async function initCollaboration(roomId: string): Promise<CollabSetup> {
           try {
             const userData = {
               name: localState.user.name || `User ${ydoc.clientID}`,
+              email: localState.user.email || '',
               color: localState.user.color || generateRandomColor(ydoc.clientID),
               lastActive: new Date().toISOString(),
               online: true
@@ -895,7 +915,7 @@ export function setupCursorTracking(
   workspace: any,
   ydoc: Y.Doc,
   awareness: Awareness,
-  userInfo?: { name?: string; color?: string }
+  userInfo?: { name?: string; email?: string; color?: string }
 ) {
   try {
     // Get the client ID
@@ -903,12 +923,14 @@ export function setupCursorTracking(
     
     // Set default user info if not provided
     const name = userInfo?.name || `User ${clientId}`;
+    const email = userInfo?.email || '';
     const color = userInfo?.color || generateRandomColor(clientId);
     
     // Set local state with user info
     awareness.setLocalState({
       user: { 
         name: name || `User ${clientId}`, 
+        email: email || '',
         color: color || generateRandomColor(clientId), 
         clientId 
       },
@@ -951,12 +973,36 @@ export function setupCursorTracking(
       nameEl.style.left = '15px';
       nameEl.style.backgroundColor = state.user.color;
       nameEl.style.color = 'white';
-      nameEl.style.padding = '2px 5px';
+      nameEl.style.padding = '3px 8px';
       nameEl.style.borderRadius = '4px';
       nameEl.style.fontSize = '12px';
+      nameEl.style.boxShadow = '0 2px 4px rgba(0,0,0,0.2)';
       nameEl.style.whiteSpace = 'nowrap';
       nameEl.style.userSelect = 'none';
+      nameEl.style.maxWidth = '150px';
+      nameEl.style.overflow = 'hidden';
+      nameEl.style.textOverflow = 'ellipsis';
       cursorEl.appendChild(nameEl);
+      
+      // Add email label
+      const emailEl = document.createElement('div');
+      emailEl.className = 'remote-cursor-email';
+      emailEl.textContent = state.user.email;
+      emailEl.style.position = 'absolute';
+      emailEl.style.top = '-50px';
+      emailEl.style.left = '15px';
+      emailEl.style.backgroundColor = state.user.color;
+      emailEl.style.color = 'white';
+      emailEl.style.padding = '3px 8px';
+      emailEl.style.borderRadius = '4px';
+      emailEl.style.fontSize = '12px';
+      emailEl.style.boxShadow = '0 2px 4px rgba(0,0,0,0.2)';
+      emailEl.style.whiteSpace = 'nowrap';
+      emailEl.style.userSelect = 'none';
+      emailEl.style.maxWidth = '150px';
+      emailEl.style.overflow = 'hidden';
+      emailEl.style.textOverflow = 'ellipsis';
+      cursorEl.appendChild(emailEl);
       
       return cursorEl;
     };
