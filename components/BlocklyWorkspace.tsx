@@ -21,6 +21,7 @@ const BlocklyWorkspace: React.FC<BlocklyWorkspaceProps> = ({
   const [collaborationStatus, setCollaborationStatus] = useState<string>('Initializing collaboration...');
   const [userCount, setUserCount] = useState<number>(1);
   const [isConnected, setIsConnected] = useState<boolean>(false);
+  const [isLoading, setIsLoading] = useState<boolean>(true);
 
   // Update parent component with connection status
   useEffect(() => {
@@ -41,11 +42,20 @@ const BlocklyWorkspace: React.FC<BlocklyWorkspaceProps> = ({
     let collaborationCleanup: (() => void) | null = null;
     
     // Only run on client-side
-    if (typeof window === 'undefined' || !blocklyDiv.current) return;
+    if (typeof window === 'undefined' || !blocklyDiv.current) {
+      return;
+    }
+    
+    // Flag to prevent multiple initializations
+    let isInitialized = false;
     
     // Dynamically import Blockly
     const initBlockly = async () => {
+      if (isInitialized) return;
+      
       try {
+        setIsLoading(true);
+        
         // Import Blockly and necessary components
         const Blockly = await import('blockly');
         const BlocklyJS = await import('blockly/javascript');
@@ -122,7 +132,6 @@ const BlocklyWorkspace: React.FC<BlocklyWorkspaceProps> = ({
           sounds: true,
           media: 'https://blockly-demo.appspot.com/static/media/',
           renderer: 'geras',
-          // Removing theme property as it's causing TypeScript errors
         };
         
         // Clear any previous workspace
@@ -200,213 +209,203 @@ const BlocklyWorkspace: React.FC<BlocklyWorkspaceProps> = ({
           setIsConnected(connected);
           if (connected) {
             setCollaborationStatus('Connected to collaboration server');
-          } else if (provider === null) {
-            setCollaborationStatus('Working in offline mode - WebSocket connection failed');
           } else {
-            setCollaborationStatus('Partially connected - some features may be limited');
+            setCollaborationStatus('Disconnected from collaboration server');
           }
           
-          // Listen for provider status changes if available
+          // Set up listeners for connection changes
           if (provider) {
             provider.on('status', (event: { status: string }) => {
-              console.log('WebSocket connection status:', event.status);
+              console.log('Connection status:', event.status);
               
               if (event.status === 'connected') {
-                setCollaborationStatus('Connected! 🎉 You can now collaborate in real-time.');
                 setIsConnected(true);
-              } else if (event.status === 'connecting') {
-                setCollaborationStatus('Connecting to collaboration server...');
-                setIsConnected(false);
+                setCollaborationStatus('Connected to collaboration server');
               } else if (event.status === 'disconnected') {
-                setCollaborationStatus('Disconnected from collaboration server. Trying to reconnect...');
                 setIsConnected(false);
-              } else {
-                setCollaborationStatus(`Connection status: ${event.status}`);
+                setCollaborationStatus('Disconnected from collaboration server');
               }
             });
           }
-
-          // Keep track of user counts
-          if (awareness) {
-            awareness.on('change', () => {
-              // Count users with awareness states (indicating active users)
-              const count = Array.from(awareness.getStates().keys()).length;
-              setUserCount(Math.max(1, count)); // Ensure at least 1 user (self)
-            });
-          }
-
-          // Setup cleanup function
-          collaborationCleanup = () => {
-            if (provider) provider.disconnect();
-            if (ydoc) ydoc.destroy();
-          };
           
+          // Set up user count tracking
+          awareness.on('change', () => {
+            const count = Array.from(awareness.getStates().keys()).length;
+            setUserCount(count);
+          });
+          
+          collaborationCleanup = cleanup;
         } catch (error) {
           console.error('Error setting up collaboration:', error);
-          setCollaborationStatus('Failed to connect to collaboration server. Working in offline mode.');
-          setIsConnected(false);
+          setCollaborationStatus('Error connecting to collaboration server');
         }
+        
+        isInitialized = true;
+        setIsLoading(false);
       } catch (error) {
-        console.error("Error initializing Blockly:", error);
-        setCollaborationStatus('Error initializing Blockly workspace');
+        console.error('Error initializing Blockly:', error);
+        setIsLoading(false);
       }
     };
-
+    
+    // Initialize Blockly
     initBlockly();
     
-    // Clean up on unmount
+    // Cleanup function
     return () => {
-      if (blocklyInstance) {
-        blocklyInstance.dispose();
-      }
-      // Clean up collaboration resources
       if (collaborationCleanup) {
         collaborationCleanup();
       }
-      // Remove resize listener
+      
+      if (workspace) {
+        try {
+          workspace.dispose();
+        } catch (error) {
+          console.error('Error disposing of workspace:', error);
+        }
+      }
+      
       window.removeEventListener('resize', () => {});
     };
-  }, [roomId]);
+  }, [roomId]); // Only re-run if roomId changes
 
-  const clearWorkspace = () => {
-    if (workspace) {
-      workspace.clear();
-    }
-  };
-
-  const toggleCodeVisibility = () => {
-    setShowCode(!showCode);
-  };
-
-  const getToolboxConfiguration = () => {
+  // Generate toolbox configuration
+  function getToolboxConfiguration() {
     return {
-      kind: 'categoryToolbox',
-      contents: [
+      "kind": "categoryToolbox",
+      "contents": [
         {
-          kind: 'category',
-          name: 'Logic',
-          colour: '#5b80a5',
-          contents: [
-            { kind: 'block', type: 'controls_if' },
-            { kind: 'block', type: 'logic_compare' },
-            { kind: 'block', type: 'logic_operation' },
-            { kind: 'block', type: 'logic_negate' },
-            { kind: 'block', type: 'logic_boolean' },
-            { kind: 'block', type: 'logic_null' },
-            { kind: 'block', type: 'logic_ternary' },
-          ],
+          "kind": "category",
+          "name": "Logic",
+          "colour": "#5C81A6",
+          "contents": [
+            {
+              "kind": "block",
+              "type": "controls_if"
+            },
+            {
+              "kind": "block",
+              "type": "logic_compare"
+            },
+            {
+              "kind": "block",
+              "type": "logic_operation"
+            },
+            {
+              "kind": "block",
+              "type": "logic_negate"
+            },
+            {
+              "kind": "block",
+              "type": "logic_boolean"
+            }
+          ]
         },
         {
-          kind: 'category',
-          name: 'Loops',
-          colour: '#5ba55b',
-          contents: [
-            { kind: 'block', type: 'controls_repeat_ext' },
-            { kind: 'block', type: 'controls_whileUntil' },
-            { kind: 'block', type: 'controls_for' },
-            { kind: 'block', type: 'controls_forEach' },
-            { kind: 'block', type: 'controls_flow_statements' },
-          ],
+          "kind": "category",
+          "name": "Loops",
+          "colour": "#5CA65C",
+          "contents": [
+            {
+              "kind": "block",
+              "type": "controls_repeat_ext"
+            },
+            {
+              "kind": "block",
+              "type": "controls_whileUntil"
+            },
+            {
+              "kind": "block",
+              "type": "controls_for"
+            },
+            {
+              "kind": "block",
+              "type": "controls_forEach"
+            }
+          ]
         },
         {
-          kind: 'category',
-          name: 'Math',
-          colour: '#5b67a5',
-          contents: [
-            { kind: 'block', type: 'math_number' },
-            { kind: 'block', type: 'math_arithmetic' },
-            { kind: 'block', type: 'math_single' },
-            { kind: 'block', type: 'math_trig' },
-            { kind: 'block', type: 'math_constant' },
-            { kind: 'block', type: 'math_number_property' },
-            { kind: 'block', type: 'math_round' },
-            { kind: 'block', type: 'math_on_list' },
-            { kind: 'block', type: 'math_modulo' },
-            { kind: 'block', type: 'math_constrain' },
-            { kind: 'block', type: 'math_random_int' },
-            { kind: 'block', type: 'math_random_float' },
-            { kind: 'block', type: 'math_atan2' },
-          ],
+          "kind": "category",
+          "name": "Math",
+          "colour": "#5C68A6",
+          "contents": [
+            {
+              "kind": "block",
+              "type": "math_number"
+            },
+            {
+              "kind": "block",
+              "type": "math_arithmetic"
+            },
+            {
+              "kind": "block",
+              "type": "math_single"
+            },
+            {
+              "kind": "block",
+              "type": "math_round"
+            }
+          ]
         },
         {
-          kind: 'category',
-          name: 'Text',
-          colour: '#5ba58c',
-          contents: [
-            { kind: 'block', type: 'text' },
-            { kind: 'block', type: 'text_join' },
-            { kind: 'block', type: 'text_append' },
-            { kind: 'block', type: 'text_length' },
-            { kind: 'block', type: 'text_isEmpty' },
-            { kind: 'block', type: 'text_indexOf' },
-            { kind: 'block', type: 'text_charAt' },
-            { kind: 'block', type: 'text_getSubstring' },
-            { kind: 'block', type: 'text_changeCase' },
-            { kind: 'block', type: 'text_trim' },
-            { kind: 'block', type: 'text_print' },
-            { kind: 'block', type: 'text_prompt_ext' },
-          ],
+          "kind": "category",
+          "name": "Text",
+          "colour": "#5CA6A6",
+          "contents": [
+            {
+              "kind": "block",
+              "type": "text"
+            },
+            {
+              "kind": "block",
+              "type": "text_join"
+            },
+            {
+              "kind": "block",
+              "type": "text_append"
+            },
+            {
+              "kind": "block",
+              "type": "text_length"
+            }
+          ]
         },
         {
-          kind: 'category',
-          name: 'Lists',
-          colour: '#745ba5',
-          contents: [
-            { kind: 'block', type: 'lists_create_with' },
-            { kind: 'block', type: 'lists_create_empty' },
-            { kind: 'block', type: 'lists_repeat' },
-            { kind: 'block', type: 'lists_length' },
-            { kind: 'block', type: 'lists_isEmpty' },
-            { kind: 'block', type: 'lists_indexOf' },
-            { kind: 'block', type: 'lists_getIndex' },
-            { kind: 'block', type: 'lists_setIndex' },
-            { kind: 'block', type: 'lists_getSublist' },
-            { kind: 'block', type: 'lists_split' },
-            { kind: 'block', type: 'lists_sort' },
-          ],
+          "kind": "category",
+          "name": "Variables",
+          "colour": "#A65CA6",
+          "custom": "VARIABLE"
         },
         {
-          kind: 'category',
-          name: 'Variables',
-          colour: '#a55b80',
-          custom: 'VARIABLE',
-        },
-        {
-          kind: 'category',
-          name: 'Functions',
-          colour: '#995ba5',
-          custom: 'PROCEDURE',
-        },
-      ],
+          "kind": "category",
+          "name": "Functions",
+          "colour": "#9A5CA6",
+          "custom": "PROCEDURE"
+        }
+      ]
     };
   };
 
   return (
     <div className={styles.blocklyContainer}>
-      <div className={styles.toolbar}>
-        <button className={styles.toolbarButton} onClick={clearWorkspace}>
-          Clear Workspace
-        </button>
-        <button className={styles.toolbarButton} onClick={toggleCodeVisibility}>
-          {showCode ? 'Hide' : 'Show'} Code
-        </button>
-        <div className={styles.collaborationStatus}>
-          {collaborationStatus} {userCount > 1 ? `👥 ${userCount} users online` : ''}
+      {isLoading && (
+        <div className={styles.blocklyLoading}>
+          Loading Blockly workspace...
         </div>
-      </div>
+      )}
       
-      <div className={styles.workspaceContainer}>
-        <div
-          className={styles.blocklyDiv}
-          ref={blocklyDiv}
-        />
-      </div>
+      <div ref={blocklyDiv} className={styles.blocklyDiv}></div>
       
-      {showCode && (
-        <div className={styles.codeOutput}>
-          <h3>Generated JavaScript:</h3>
-          <pre>
-            <code>{generatedCode || '// No code generated yet'}</code>
+      {showCode && generatedCode && (
+        <div className={styles.codeContainer}>
+          <div className={styles.codeHeader}>
+            <h3>Generated JavaScript:</h3>
+            <button onClick={() => setShowCode(!showCode)} className={styles.hideCodeButton}>
+              Hide Code
+            </button>
+          </div>
+          <pre className={styles.codeDisplay}>
+            {generatedCode || '// No code generated yet'}
           </pre>
         </div>
       )}

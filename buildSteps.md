@@ -43,4 +43,6 @@ This document tracks the progress of the BlocklyCollab application from start to
 - Implemented full Clerk authentication system
 - Protected workspace routes with authentication middleware
 - Enhanced the auth flows with Clerk's official components
+- Fixed client-side rendering issues with Blockly workspace in production
+- Improved error handling and null checks in collaboration code
 - Ready for initial user testing with real authentication
