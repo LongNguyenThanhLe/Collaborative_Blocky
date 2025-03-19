@@ -743,7 +743,8 @@ export function setupCursorTracking(workspace: any, ydoc: Y.Doc, provider: any, 
     
     // Listen for block drag events
     workspace.addChangeListener((e: any) => {
-      if (e.type === Blockly.Events.BLOCK_DRAG) {
+      // Check if Blockly.Events and BLOCK_DRAG exist before accessing
+      if (Blockly?.Events?.BLOCK_DRAG && e.type === Blockly.Events.BLOCK_DRAG) {
         if (e.isStart) {
           onStartDrag(e);
         } else {
@@ -836,14 +837,20 @@ export async function initCollaboration(
         ? roomId.substring(5) // Remove 'room_' prefix
         : roomId;
         
+      // For production, the WebSocketProvider may ignore paths in the base URL 
+      // and simply append the room ID to the domain
+      // Instead, we'll use the room name format that includes the path
+      const isProduction = process.env.NODE_ENV === 'production';
+      const finalRoomId = isProduction ? `yjs/${formattedRoomId}` : formattedRoomId;
+        
       provider = new WebsocketProvider(
         websocketUrl,
-        formattedRoomId, // Use the formatted room ID for WebSocket connection
+        finalRoomId, // Include the path in the room ID if needed
         ydoc,
         { connect: true }
       );
       
-      console.log('WebSocket provider initialized with room ID:', formattedRoomId);
+      console.log('WebSocket provider initialized with room ID:', finalRoomId);
     } catch (error) {
       console.error('Error creating WebSocket provider:', error);
     }
