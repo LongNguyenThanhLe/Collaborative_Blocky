@@ -5,7 +5,20 @@ import { ClerkProvider } from '@clerk/nextjs';
 
 function MyApp({ Component, pageProps }: AppProps) {
   return (
-    <ClerkProvider {...pageProps}>
+    <ClerkProvider 
+      {...pageProps}
+      appearance={{
+        layout: {
+          logoPlacement: 'inside',
+          socialButtonsPlacement: 'bottom',
+          logoImageUrl: '/images/logo.svg',
+        },
+        variables: {
+          colorPrimary: '#4285F4',
+        },
+      }}
+      navigate={(to: string) => window.location.href = to}
+    >
       <Component {...pageProps} />
     </ClerkProvider>
   );
