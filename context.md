@@ -63,6 +63,9 @@ BlocklyCollab is an enhanced version of Google's Blockly programming environment
   - Added proper cleanup for user connections with navigator.sendBeacon
   - Created API endpoint for handling room leave events
   - Fixed COOP errors in authentication flow
+  - Added missing collaboration functions (setupBlocklySync and setupCursorTracking) to fix build errors
+  - Fixed function signatures to match component usage patterns
+  - Enhanced error handling in collaboration setup
 
 ## Firebase Optimization
 - Implemented in-memory cache for room data with 5-minute expiry
