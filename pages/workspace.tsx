@@ -31,6 +31,13 @@ const Workspace: NextPage = () => {
   const roomId = typeof router.query.roomId === 'string' ? router.query.roomId : '';
   const projectId = typeof router.query.projectId === 'string' ? router.query.projectId : '';
   
+  // Redirect to dashboard if no room or project ID is specified
+  useEffect(() => {
+    if (!loading && !roomId && !projectId) {
+      router.push('/dashboard');
+    }
+  }, [loading, roomId, projectId, router]);
+  
   // Function to show a temporary status message
   const showTemporaryMessage = (message: string, duration = 3000) => {
     setStatusMessage(message);
