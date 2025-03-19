@@ -497,13 +497,37 @@ export function setupBlocklySync(workspace: any, ydoc: Y.Doc, options?: {blockly
 
 /**
  * Sets up cursor tracking and visualization between users
+ * @param container DOM element containing the Blockly workspace
  * @param workspace Blockly workspace instance
+ * @param ydoc Y.js document
  * @param awareness Y.js awareness instance for presence
+ * @param userInfo Optional user information
  * @returns Cleanup function
  */
-export function setupCursorTracking(workspace: any, awareness: Awareness) {
+export function setupCursorTracking(
+  container: HTMLElement,
+  workspace: any,
+  ydoc: Y.Doc,
+  awareness: Awareness,
+  userInfo?: {
+    name?: string;
+    email?: string;
+    color?: string;
+  }
+) {
   // Map to store cursor elements for each user
   const cursors = new Map();
+  
+  // Set local user information if provided
+  if (userInfo && awareness) {
+    const localState = awareness.getLocalState() || {};
+    awareness.setLocalState({
+      ...localState,
+      name: userInfo.name || localState.name || 'Anonymous',
+      email: userInfo.email || localState.email || '',
+      color: userInfo.color || localState.color || getRandomColor()
+    });
+  }
   
   // Create and add a cursor element for a user
   const createCursor = (clientId: number, state: any) => {
@@ -543,8 +567,7 @@ export function setupCursorTracking(workspace: any, awareness: Awareness) {
       cursorEl.appendChild(label);
       
       // Add to workspace
-      const blocklyDiv = workspace.getInjectionDiv();
-      blocklyDiv.appendChild(cursorEl);
+      container.appendChild(cursorEl);
       
       // Store cursor element
       cursors.set(clientId, { element: cursorEl, state });
@@ -598,7 +621,7 @@ export function setupCursorTracking(workspace: any, awareness: Awareness) {
   const onMouseMove = (e: any) => {
     // Convert screen position to workspace coordinates
     const screenPosition = new Blockly.utils.Coordinate(e.clientX, e.clientY);
-    const svgPoint = workspace.getinjectionDiv().createSVGPoint();
+    const svgPoint = workspace.getInjectionDiv().createSVGPoint();
     svgPoint.x = screenPosition.x;
     svgPoint.y = screenPosition.y;
     
@@ -664,8 +687,7 @@ export function setupCursorTracking(workspace: any, awareness: Awareness) {
   
   // Set up workspace event listeners if we have access to the DOM
   if (typeof window !== 'undefined') {
-    const blocklyDiv = workspace.getInjectionDiv();
-    blocklyDiv.addEventListener('mousemove', onMouseMove);
+    container.addEventListener('mousemove', onMouseMove);
     
     // Listen for block drag events
     workspace.addChangeListener((e: any) => {
@@ -701,10 +723,7 @@ export function setupCursorTracking(workspace: any, awareness: Awareness) {
     awareness.off('change', awarenessChangeHandler);
     
     if (typeof window !== 'undefined') {
-      const blocklyDiv = workspace.getInjectionDiv();
-      if (blocklyDiv) {
-        blocklyDiv.removeEventListener('mousemove', onMouseMove);
-      }
+      container.removeEventListener('mousemove', onMouseMove);
       window.removeEventListener('resize', resizeHandler);
     }
   };
