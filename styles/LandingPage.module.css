@@ -1,0 +1,208 @@
+.landingContainer {
+  min-height: 100vh;
+  background-color: #f8f9fa;
+  position: relative;
+  overflow: hidden;
+}
+
+.navbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 1.5rem 2rem;
+  position: relative;
+  z-index: 10;
+}
+
+.logo {
+  font-size: 1.8rem;
+  font-weight: bold;
+  color: #333;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.logoIcon {
+  color: #4285F4;
+}
+
+.navActions {
+  display: flex;
+  gap: 1rem;
+  align-items: center;
+}
+
+.loginButton {
+  padding: 0.5rem 1.2rem;
+  border-radius: 5px;
+  background: transparent;
+  color: #333;
+  font-weight: 500;
+  border: 1px solid #ddd;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.loginButton:hover {
+  background: #f1f1f1;
+}
+
+.signupButton {
+  padding: 0.5rem 1.2rem;
+  border-radius: 5px;
+  background: #4285F4;
+  color: white;
+  font-weight: 500;
+  border: none;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.signupButton:hover {
+  background: #3367D6;
+}
+
+.heroSection {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 4rem 2rem;
+  text-align: center;
+  position: relative;
+  z-index: 5;
+}
+
+.headline {
+  font-size: 3.5rem;
+  font-weight: bold;
+  margin-bottom: 1.5rem;
+  color: #333;
+  line-height: 1.2;
+  max-width: 900px;
+}
+
+.subHeadline {
+  font-size: 1.25rem;
+  max-width: 700px;
+  margin-bottom: 2.5rem;
+  color: #555;
+  line-height: 1.6;
+}
+
+.ctaButton {
+  padding: 1rem 2.5rem;
+  border-radius: 30px;
+  background: #4285F4;
+  color: white;
+  font-weight: 600;
+  font-size: 1.1rem;
+  border: none;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  box-shadow: 0 4px 6px rgba(50, 50, 93, 0.11), 0 1px 3px rgba(0, 0, 0, 0.08);
+}
+
+.ctaButton:hover {
+  background: #3367D6;
+  transform: translateY(-2px);
+  box-shadow: 0 7px 14px rgba(50, 50, 93, 0.1), 0 3px 6px rgba(0, 0, 0, 0.08);
+}
+
+.featuresSection {
+  display: flex;
+  justify-content: center;
+  gap: 2rem;
+  padding: 2rem;
+  margin-top: 2rem;
+  flex-wrap: wrap;
+  position: relative;
+  z-index: 5;
+}
+
+.featureCard {
+  background: white;
+  border-radius: 12px;
+  padding: 2rem;
+  width: 300px;
+  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.05);
+  transition: all 0.3s ease;
+}
+
+.featureCard:hover {
+  transform: translateY(-5px);
+  box-shadow: 0 10px 20px rgba(0, 0, 0, 0.08);
+}
+
+.featureTitle {
+  font-size: 1.5rem;
+  font-weight: 600;
+  margin-bottom: 1rem;
+  color: #333;
+}
+
+.featureDescription {
+  color: #666;
+  line-height: 1.6;
+}
+
+.featureIcon {
+  font-size: 2.5rem;
+  margin-bottom: 1.5rem;
+  color: #4285F4;
+}
+
+.decorativeShape {
+  position: absolute;
+  border-radius: 50%;
+  opacity: 0.6;
+}
+
+.shape1 {
+  width: 300px;
+  height: 300px;
+  background: #FFCF5C;
+  top: 10%;
+  left: 5%;
+}
+
+.shape2 {
+  width: 200px;
+  height: 200px;
+  background: #A0C8FF;
+  bottom: 20%;
+  right: 10%;
+}
+
+.shape3 {
+  width: 150px;
+  height: 150px;
+  background: #BF94FF;
+  top: 30%;
+  right: 20%;
+}
+
+.shape4 {
+  width: 100px;
+  height: 100px;
+  background: #64E8B7;
+  bottom: 15%;
+  left: 15%;
+}
+
+@media (max-width: 768px) {
+  .headline {
+    font-size: 2.5rem;
+  }
+  
+  .featuresSection {
+    flex-direction: column;
+    align-items: center;
+  }
+  
+  .featureCard {
+    width: 100%;
+    max-width: 400px;
+  }
+}
