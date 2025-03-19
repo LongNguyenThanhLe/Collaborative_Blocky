@@ -8,14 +8,14 @@ BlocklyCollab is an enhanced version of Google's Blockly programming environment
 - User-specific cursor tracking and awareness
 - Per-block synchronization for improved collaboration
 - Scaffolded collaboration tools with clear boundaries
-- Modern authentication system using Clerk
+- Modern authentication system using Firebase
 - Responsive design for different devices
 
 ## Technical Stack
 - Frontend: Next.js 14.0.0 with TypeScript
 - Block Programming: Blockly 10.4.3
 - Real-time Collaboration: Yjs, Firebase
-- Authentication: Clerk
+- Authentication: Firebase
 - Deployment: Vercel
 
 ## Architecture
@@ -29,22 +29,27 @@ BlocklyCollab is an enhanced version of Google's Blockly programming environment
 - **2025-03-18**: 
   - Added modern landing page with feature highlights
   - Created login and signup pages with UI/UX improvements
-  - Implemented Clerk authentication using official components and middleware
-  - Protected workspace route with Clerk authentication
+  - Implemented Firebase authentication system
+  - Protected workspace route with Firebase authentication
   - Fixed collaboration issues: XML data errors, cursor appearance
   - Improved block serialization for better synchronization
   - Enhanced client-side rendering of Blockly workspace for production environment
   - Fixed provider null check in collaboration setup
   - Added debugging information and explicit workspace dimensions
   - Improved visibility of Blockly workspace in production environment
-  - Enhanced Clerk authentication with client-side rendering
-  - Fixed CSS module syntax for global selectors in Auth styles
+  - Converted from Clerk to Firebase Authentication for more reliable auth
+  - Added native auth forms with Firebase integration
+  - Implemented client-side auth state management
+  - Updated UI for user identification and sign-out in workspace
 
 ## Environment Variables
 - Firebase configuration variables for Firestore
-- Clerk authentication credentials:
-  - NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY
-  - CLERK_SECRET_KEY
+  - NEXT_PUBLIC_FIREBASE_API_KEY
+  - NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN
+  - NEXT_PUBLIC_FIREBASE_PROJECT_ID
+  - NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET
+  - NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID
+  - NEXT_PUBLIC_FIREBASE_APP_ID
 
 ## Deployment
 The application is deployed on Vercel with custom domain configuration. Firebase environment variables need to be set in the Vercel project settings.

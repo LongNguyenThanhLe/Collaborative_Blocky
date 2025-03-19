@@ -40,13 +40,14 @@ This document tracks the progress of the BlocklyCollab application from start to
 
 ## Current Progress: Authentication and Protected Routes
 - Completed modern landing page design
-- Implemented full Clerk authentication system
-- Protected workspace routes with authentication middleware
-- Enhanced the auth flows with Clerk's official components
+- Migrated from Clerk to Firebase Authentication for improved reliability
+- Protected workspace routes with Firebase auth middleware and client-side checks
+- Added custom login and signup forms with Firebase integration
+- Created AuthContext for managing authentication state across the application
+- Implemented auth state persistence and redirection logic
+- Updated workspace UI with user information and sign-out functionality
 - Fixed client-side rendering issues with Blockly workspace in production
 - Improved error handling and null checks in collaboration code
 - Added debugging information and explicit dimensions for visibility
 - Enhanced workspace rendering in production environments
-- Improved Clerk authentication with client-side safeguards
-- Fixed CSS module syntax for proper Clerk UI styling
-- Ready for initial user testing with real authentication
+- Ready for initial user testing with Firebase authentication

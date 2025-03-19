@@ -2,7 +2,7 @@
   "name": "collaborative-blockly",
   "version": "0.1.0",
   "private": true,
-  "description": "A collaborative Blockly editor using Next.js",
+  "description": "A collaborative Blockly editor using Next.js and Firebase",
   "scripts": {
     "dev": "next dev",
     "build": "next build",
@@ -10,7 +10,6 @@
     "lint": "next lint"
   },
   "dependencies": {
-    "@clerk/nextjs": "^6.12.5",
     "blockly": "^10.4.3",
     "firebase": "^11.4.0",
     "next": "^14.0.0",

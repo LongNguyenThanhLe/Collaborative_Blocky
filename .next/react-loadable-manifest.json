@@ -1,20 +1,20 @@
 {
-  "components/BlocklyWorkspace.tsx -> blockly": {
-    "id": "components/BlocklyWorkspace.tsx -> blockly",
+  "node_modules/@clerk/nextjs/dist/esm/app-router/client/ClerkProvider.js -> ./keyless-creator-reader.js": {
+    "id": "node_modules/@clerk/nextjs/dist/esm/app-router/client/ClerkProvider.js -> ./keyless-creator-reader.js",
     "files": [
-      "static/chunks/node_modules_blockly_index_js.js"
+      "static/chunks/node_modules_clerk_nextjs_dist_esm_app-router_client_keyless-creator-reader_js.js"
     ]
   },
-  "components/BlocklyWorkspace.tsx -> blockly/blocks": {
-    "id": "components/BlocklyWorkspace.tsx -> blockly/blocks",
+  "node_modules/@clerk/nextjs/dist/esm/app-router/keyless-actions.js -> ../server/keyless-log-cache.js": {
+    "id": "node_modules/@clerk/nextjs/dist/esm/app-router/keyless-actions.js -> ../server/keyless-log-cache.js",
     "files": [
-      "static/chunks/node_modules_blockly_blocks_js.js"
+      "static/chunks/node_modules_clerk_nextjs_dist_esm_server_keyless-log-cache_js.js"
     ]
   },
-  "components/BlocklyWorkspace.tsx -> blockly/javascript": {
-    "id": "components/BlocklyWorkspace.tsx -> blockly/javascript",
+  "node_modules/@clerk/nextjs/dist/esm/app-router/keyless-actions.js -> ../server/keyless-node.js": {
+    "id": "node_modules/@clerk/nextjs/dist/esm/app-router/keyless-actions.js -> ../server/keyless-node.js",
     "files": [
-      "static/chunks/node_modules_blockly_javascript_js.js"
+      "static/chunks/node_modules_clerk_nextjs_dist_esm_server_keyless-node_js.js"
     ]
   }
 }
