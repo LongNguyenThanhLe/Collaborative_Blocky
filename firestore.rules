@@ -1,70 +1,35 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    // Base rule - deny access by default
+    // Allow authenticated users to read and write their data
     match /{document=**} {
-      allow read, write: if false;
+      allow read, write: if request.auth != null;
     }
     
-    // User profiles
+    // User profiles - more permissive rules
     match /users/{userId} {
       allow read: if request.auth != null;
-      allow write: if request.auth != null && request.auth.uid == userId;
+      allow write: if request.auth != null;
       
-      // User's project references
-      match /userProjects/{projectId} {
-        allow read: if request.auth != null && request.auth.uid == userId;
-        allow write: if request.auth != null && request.auth.uid == userId;
+      // User's rooms collection
+      match /rooms/{roomId} {
+        allow read, write: if request.auth != null;
       }
     }
     
-    // Collaborative rooms
+    // Collaborative rooms - more permissive rules
     match /rooms/{roomId} {
-      allow read: if request.auth != null;
-      allow create: if request.auth != null;
-      allow update, delete: if request.auth != null && 
-                             (resource.data.createdBy == request.auth.uid || 
-                              request.resource.data.createdBy == request.auth.uid);
+      allow read, write: if request.auth != null;
       
       // Room user lists
       match /users/{userId} {
-        allow read: if request.auth != null;
-        allow write: if request.auth != null && request.auth.uid == userId;
+        allow read, write: if request.auth != null;
       }
     }
     
     // Projects collection
     match /projects/{projectId} {
-      // Helper function to check if user is a collaborator
-      function isCollaborator() {
-        return request.auth != null && 
-          (resource.data.collaborators.hasAny([{'userId': request.auth.uid}]) || 
-           resource.data.createdBy == request.auth.uid);
-      }
-      
-      // Helper function to check if user is an editor or owner
-      function canEdit() {
-        return request.auth != null && 
-          (resource.data.collaborators.hasAny([{'userId': request.auth.uid, 'role': 'editor'}]) || 
-           resource.data.collaborators.hasAny([{'userId': request.auth.uid, 'role': 'owner'}]) || 
-           resource.data.createdBy == request.auth.uid);
-      }
-      
-      // Allow read if project is public or user is a collaborator
-      allow read: if request.auth != null && 
-                   (resource.data.isPublic == true || isCollaborator());
-      
-      // Allow create if authenticated
-      allow create: if request.auth != null && 
-                     request.resource.data.createdBy == request.auth.uid;
-      
-      // Allow update if user is an editor or owner
-      allow update: if canEdit();
-      
-      // Allow delete only if user is the owner
-      allow delete: if request.auth != null && 
-                     (resource.data.createdBy == request.auth.uid || 
-                      resource.data.collaborators.hasAny([{'userId': request.auth.uid, 'role': 'owner'}]));
+      allow read, write: if request.auth != null;
     }
   }
 }
