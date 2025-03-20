@@ -124,6 +124,33 @@ BlocklyCollab is an enhanced version of Google's Blockly programming environment
     - Fixed issues with block visibility across different users
     - Enhanced cursor tracking to work with the new synchronization model
     - Added more detailed logging for debugging collaboration issues
+- **2025-03-27**:
+  - Fixed critical block position synchronization issues:
+    - Implemented normalized coordinate system to ensure blocks appear at consistent positions across different screen sizes
+    - Added position change threshold to prevent blocks from glitching between small position differences
+    - Improved connection handling to avoid duplicate connections
+    - Enhanced error handling in synchronization process
+    - Added block property synchronization (collapsed state, disabled state, etc.)
+    - Added room status indicators showing currently connected users
+    - Fixed cursor tracking to work with the normalized coordinate system
+
+## Room Management
+
+Room management functionality allows for creating, joining, and now closing rooms:
+
+1. **Room Creation**: Users can create new rooms via the dashboard, which creates records in Firebase.
+2. **Room Joining**: Users can join existing rooms by accessing the room URL or joining through the dashboard.
+3. **Room Closing**: 
+   - Individual rooms can be closed with the "Close Room" button added to each room card in the dashboard.
+   - Admin users have access to a "Clear All Rooms" function for maintenance purposes.
+
+The room deletion process includes:
+- Removing the room document from the Firebase 'rooms' collection
+- Deleting all user references in the room's 'users' subcollection
+- Removing the room from each user's 'rooms' subcollection
+- Clearing any cached room data
+
+This ensures a complete cleanup of room data, preventing orphaned records and maintaining database integrity.
 
 ## Firebase Optimization
 - Implemented in-memory cache for room data with 5-minute expiry

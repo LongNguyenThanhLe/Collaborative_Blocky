@@ -875,6 +875,8 @@ export function setupCursorTracking(workspace: any, ydoc: Y.Doc, provider: any, 
     statusDiv.style.maxWidth = '300px';
     statusDiv.style.boxShadow = '0 2px 5px rgba(0,0,0,0.2)';
     statusDiv.style.fontSize = '12px';
+    statusDiv.style.fontWeight = 'bold';
+    statusDiv.style.whiteSpace = 'nowrap';
     statusDiv.innerHTML = '<div>Connected users:</div><div id="blockly-user-list"></div>';
     
     // Append to workspace container
@@ -934,16 +936,20 @@ export function setupCursorTracking(workspace: any, ydoc: Y.Doc, provider: any, 
       const cursorEl = document.createElement('div');
       cursorEl.className = 'blockly-cursor';
       cursorEl.style.position = 'absolute';
-      cursorEl.style.width = '12px';
-      cursorEl.style.height = '24px';
-      cursorEl.style.backgroundColor = state.color || '#ff0000';
+      cursorEl.style.width = '0';
+      cursorEl.style.height = '0';
       cursorEl.style.zIndex = '1000';
       cursorEl.style.pointerEvents = 'none';
       cursorEl.style.transition = 'transform 0.1s ease-out, left 0.1s ease-out, top 0.1s ease-out';
       
-      // Make cursor more visible with a border
-      cursorEl.style.border = '2px solid white';
-      cursorEl.style.boxShadow = '0 0 4px rgba(0,0,0,0.5)';
+      // Create cursor arrow shape using CSS borders
+      cursorEl.style.borderStyle = 'solid';
+      cursorEl.style.borderWidth = '0 0 16px 12px';
+      cursorEl.style.borderColor = 'transparent transparent transparent ' + (state.color || '#ff0000');
+      cursorEl.style.transform = 'rotate(-45deg)';
+      
+      // Add white outline to make it more visible
+      cursorEl.style.filter = 'drop-shadow(0 0 1px white) drop-shadow(0 0 2px rgba(0,0,0,0.5))';
       
       // Add user label
       const label = document.createElement('div');
@@ -1014,8 +1020,9 @@ export function setupCursorTracking(workspace: any, ydoc: Y.Doc, provider: any, 
           const screenCoordinates = workspace.workspaceToPixels(workspaceCoordinate);
           
           if (screenCoordinates && cursor.element) {
-            cursor.element.style.left = `${screenCoordinates.x}px`;
-            cursor.element.style.top = `${screenCoordinates.y}px`;
+            // Adjust position to align the tip of the cursor with the actual position
+            cursor.element.style.left = `${screenCoordinates.x - 3}px`;
+            cursor.element.style.top = `${screenCoordinates.y - 3}px`;
           }
         } catch (error) {
           console.warn('Error converting coordinates:', error);
@@ -1505,6 +1512,89 @@ export const updateRoomUserList = async (roomId: string, userId: string, isPrese
     // Don't throw to avoid blocking the user from leaving
   }
 };
+
+// Delete a specific room
+export async function deleteRoom(roomId: string): Promise<void> {
+  try {
+    // Get room data to find all users
+    const roomRef = doc(db, 'rooms', roomId);
+    const roomSnapshot = await getDoc(roomRef);
+    
+    if (!roomSnapshot.exists()) {
+      console.error('Room not found:', roomId);
+      return;
+    }
+    
+    const roomData = roomSnapshot.data();
+    const userIds = roomData?.userIds || [];
+    
+    // Create a batch for multiple delete operations
+    const batch = writeBatch(db);
+    
+    // 1. Delete users subcollection
+    const usersCollectionRef = collection(db, 'rooms', roomId, 'users');
+    const usersSnapshot = await getDocs(usersCollectionRef);
+    usersSnapshot.docs.forEach(userDoc => {
+      batch.delete(doc(db, 'rooms', roomId, 'users', userDoc.id));
+    });
+    
+    // 2. Delete the room from each user's rooms subcollection
+    for (const userId of userIds as string[]) {
+      const userRoomRef = doc(db, 'users', userId, 'rooms', roomId);
+      batch.delete(userRoomRef);
+    }
+    
+    // 3. Delete the main room document
+    batch.delete(roomRef);
+    
+    // Execute all delete operations
+    await batch.commit();
+    
+    // Clear any cached room data
+    clearRoomCache(roomId);
+    
+    // Clear the users' room caches
+    userIds.forEach((userId: string) => {
+      userRoomsCache.delete(userId);
+    });
+    
+    console.log('Successfully deleted room:', roomId);
+  } catch (error) {
+    console.error('Error deleting room:', error);
+    throw error;
+  }
+}
+
+// Clear all rooms (admin function)
+export async function clearAllRooms(): Promise<void> {
+  try {
+    // Get all rooms
+    const roomsRef = collection(db, 'rooms');
+    const roomsSnapshot = await getDocs(roomsRef);
+    
+    if (roomsSnapshot.empty) {
+      console.log('No rooms to delete');
+      return;
+    }
+    
+    console.log(`Found ${roomsSnapshot.size} rooms to delete`);
+    
+    // Delete each room individually to handle subcollections
+    const promises = roomsSnapshot.docs.map(roomDoc => deleteRoom(roomDoc.id));
+    
+    await Promise.all(promises);
+    
+    // Clear all room caches
+    roomDataCache.clear();
+    roomUsersCache.clear();
+    userRoomsCache.clear();
+    
+    console.log('Successfully cleared all rooms');
+  } catch (error) {
+    console.error('Error clearing all rooms:', error);
+    throw error;
+  }
+}
 
 // Helper to generate random name for anonymous users
 function getRandomName() {

@@ -452,3 +452,34 @@
   cursor: pointer;
   font-size: 0.85rem;
 }
+
+.adminControls {
+  margin-top: 2rem;
+  padding: 1.5rem;
+  background-color: #f8f9fa;
+  border-radius: 8px;
+  border-left: 4px solid #dc3545;
+}
+
+.adminControls h3 {
+  margin-top: 0;
+  color: #343a40;
+  margin-bottom: 1rem;
+}
+
+.dangerButton {
+  background-color: #dc3545;
+  color: white;
+  border: none;
+  padding: 0.5rem 1rem;
+  border-radius: 4px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  transition: background-color 0.2s;
+}
+
+.dangerButton:hover {
+  background-color: #c82333;
+}

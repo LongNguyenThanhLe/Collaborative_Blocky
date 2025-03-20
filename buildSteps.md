@@ -150,6 +150,14 @@ This document tracks the progress of the BlocklyCollab application from start to
 - Added user presence indicators to show who's currently editing
 - Improved error handling for cursor tracking and user presence
 
+## Current Progress: Room Clearing and Closing Functionality
+- Added room management functionality with the ability to close individual rooms
+- Implemented an admin function to clear all rooms in Firebase for maintenance purposes
+- Added UI components (Close Room button and Admin Controls section) on the dashboard
+- Created deleteRoom and clearAllRooms functions in collab.ts to handle room deletion
+- Added proper error handling and confirmation modals for room deletion operations
+- Updated styling to support new admin controls and room management UI
+
 ## Build Steps
 
 1. Set up a new Next.js project with TypeScript

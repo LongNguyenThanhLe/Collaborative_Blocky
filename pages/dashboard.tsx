@@ -6,7 +6,7 @@ import { getAuth, onAuthStateChanged, User } from 'firebase/auth';
 import { FaPlus, FaPuzzlePiece, FaUsers, FaExternalLinkAlt, FaUserCircle, FaTrash, FaEdit } from 'react-icons/fa';
 import { MdDashboard, MdFolder, MdGroup, MdSettings } from 'react-icons/md';
 import styles from '../styles/Dashboard.module.css';
-import { getUserRooms, createNewRoom } from '../lib/collab';
+import { getUserRooms, createNewRoom, deleteRoom, clearAllRooms } from '../lib/collab';
 import { getUserProjects, createProject, deleteProject, Project } from '../lib/projects';
 
 // For rooms tab
@@ -52,6 +52,13 @@ export default function Dashboard() {
   const [errorMessage, setErrorMessage] = useState('');
   const [successMessage, setSuccessMessage] = useState('');
 
+  // State for showing delete room confirmation
+  const [showDeleteRoomConfirm, setShowDeleteRoomConfirm] = useState<string | null>(null);
+  // State for showing clear all rooms confirmation
+  const [showClearAllRoomsConfirm, setShowClearAllRoomsConfirm] = useState(false);
+  // State for tracking if the user is an admin
+  const [isAdmin, setIsAdmin] = useState(false);
+
   // Check authentication and load user data
   useEffect(() => {
     const auth = getAuth();
@@ -90,6 +97,15 @@ export default function Dashboard() {
       }
     }
   }, [activeTab, user]);
+
+  // Check if the user is an admin
+  useEffect(() => {
+    if (user && user.email) {
+      // You can define your own admin emails list here or check against a Firebase collection
+      const adminEmails = ['akeilsmith3@gmail.com']; // Example - replace with actual admin emails
+      setIsAdmin(adminEmails.includes(user.email));
+    }
+  }, [user]);
 
   // Load rooms data
   const loadRooms = async (userId: string) => {
@@ -213,6 +229,50 @@ export default function Dashboard() {
     } catch (error) {
       console.error("Error deleting project:", error);
       setErrorMessage("Failed to delete project. Please try again.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Handle deleting a room
+  const handleDeleteRoom = async (roomId: string) => {
+    try {
+      setLoading(true);
+      await deleteRoom(roomId);
+      
+      // Reload rooms after deletion
+      if (user) {
+        await loadRooms(user.uid);
+      }
+      setShowDeleteRoomConfirm(null);
+      
+      setSuccessMessage("Room closed successfully!");
+      setTimeout(() => setSuccessMessage(''), 3000);
+    } catch (error) {
+      console.error("Error closing room:", error);
+      setErrorMessage("Failed to close room. Please try again.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Handle clearing all rooms (admin function)
+  const handleClearAllRooms = async () => {
+    try {
+      setLoading(true);
+      await clearAllRooms();
+      
+      // Reload rooms after clearing
+      if (user) {
+        await loadRooms(user.uid);
+      }
+      setShowClearAllRoomsConfirm(false);
+      
+      setSuccessMessage("All rooms cleared successfully!");
+      setTimeout(() => setSuccessMessage(''), 3000);
+    } catch (error) {
+      console.error("Error clearing all rooms:", error);
+      setErrorMessage("Failed to clear all rooms. Please try again.");
     } finally {
       setLoading(false);
     }
@@ -344,6 +404,33 @@ export default function Dashboard() {
                               <FaExternalLinkAlt /> Open Room
                             </a>
                           </Link>
+                          {/* Add Close Room button */}
+                          <button 
+                            className={styles.deleteButton}
+                            onClick={() => setShowDeleteRoomConfirm(room.id)}
+                          >
+                            <FaTrash /> Close Room
+                          </button>
+                          
+                          {showDeleteRoomConfirm === room.id && (
+                            <div className={styles.confirmDelete}>
+                              <p>Are you sure you want to close this room?</p>
+                              <div>
+                                <button 
+                                  className={styles.confirmButton}
+                                  onClick={() => handleDeleteRoom(room.id)}
+                                >
+                                  Yes, Close
+                                </button>
+                                <button 
+                                  className={styles.cancelButton}
+                                  onClick={() => setShowDeleteRoomConfirm(null)}
+                                >
+                                  Cancel
+                                </button>
+                              </div>
+                            </div>
+                          )}
                         </div>
                       </div>
                     ))
@@ -351,13 +438,46 @@ export default function Dashboard() {
                     <div className={styles.emptyState}>
                       <MdGroup className={styles.emptyIcon} />
                       <h3>No rooms yet</h3>
-                      <p>Create a new room to get started with collaboration.</p>
+                      <p>Create a new room to get started.</p>
                       <button 
                         className={styles.primaryButton} 
                         onClick={() => setShowNewRoomModal(true)}
                       >
-                        <FaPlus /> Create Room
+                        <FaPlus /> New Room
                       </button>
+                    </div>
+                  )}
+                  
+                  {/* Admin controls for clearing all rooms */}
+                  {isAdmin && (
+                    <div className={styles.adminControls}>
+                      <h3>Admin Controls</h3>
+                      <button 
+                        className={styles.dangerButton}
+                        onClick={() => setShowClearAllRoomsConfirm(true)}
+                      >
+                        Clear All Rooms
+                      </button>
+                      
+                      {showClearAllRoomsConfirm && (
+                        <div className={styles.confirmDelete}>
+                          <p>Are you sure you want to clear ALL rooms? This cannot be undone!</p>
+                          <div>
+                            <button 
+                              className={styles.confirmButton}
+                              onClick={handleClearAllRooms}
+                            >
+                              Yes, Clear All
+                            </button>
+                            <button 
+                              className={styles.cancelButton}
+                              onClick={() => setShowClearAllRoomsConfirm(false)}
+                            >
+                              Cancel
+                            </button>
+                          </div>
+                        </div>
+                      )}
                     </div>
                   )}
                 </div>
