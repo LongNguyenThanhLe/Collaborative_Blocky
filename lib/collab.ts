@@ -840,19 +840,76 @@ export async function initCollaboration(
       // Log connection attempt details for debugging
       console.log('Attempting WebSocket connection with:', {
         baseUrl: websocketUrl,
-        roomId: formattedRoomId,
-        fullUrl: `${websocketUrl}/${formattedRoomId}`
+        roomId: formattedRoomId
       });
-        
-      // Try connecting without any path prefix first - this is likely what the server expects
+      
+      // Implementation based on the y-websocket behavior analysis
+      // Use the full URL including the /yjs/ path with an empty room name
+      // and pass the actual room ID as a parameter
+      const fullWebsocketUrl = `${websocketUrl}/yjs`;
+      
+      console.log('Using complete WebSocket URL:', fullWebsocketUrl);
+      
+      // Try connecting with empty room name and passing the room ID via params
       provider = new WebsocketProvider(
-        websocketUrl,
-        formattedRoomId,
+        fullWebsocketUrl,
+        '',
         ydoc,
-        { connect: true }
+        { 
+          connect: true,
+          params: { roomId: formattedRoomId }
+        }
       );
       
-      console.log('WebSocket provider initialized with room ID:', formattedRoomId);
+      console.log('WebSocket provider initialized with room ID in params:', formattedRoomId);
+      
+      // Enhanced debugging - Add event listeners for connection state changes
+      provider.on('status', (event: { status: "connected" | "disconnected" | "connecting" }) => {
+        console.log(`[WebSocket Debug] Connection status changed:`, event.status);
+       });
+       
+       provider.on('connection-error', (event: Event, provider: WebsocketProvider) => {
+         console.error('[WebSocket Debug] Connection error:', event);
+         
+         // Extract and log the WebSocket URL that was actually used
+         const wsInstance = (provider as any)._ws;
+         if (wsInstance) {
+           console.log('[WebSocket Debug] Actual WebSocket URL used:', wsInstance.url);
+         }
+       });
+       
+       provider.on('connection-close', (event: CloseEvent | null, provider: WebsocketProvider) => {
+         console.log('[WebSocket Debug] Connection closed:', event ? {
+           code: event.code,
+           reason: event.reason,
+           wasClean: event.wasClean
+         } : 'Unknown reason');
+       });
+       
+       // Add sync event listeners
+       provider.on('sync', (isSynced: boolean) => {
+         console.log(`[WebSocket Debug] Provider synced: ${isSynced}`);
+       });
+      
+      // Try to manually access the raw WebSocket instance
+      setTimeout(() => {
+        if ((provider as any)._ws) {
+          console.log('[WebSocket Debug] Delayed: Raw WebSocket URL:', (provider as any)._ws.url);
+          console.log('[WebSocket Debug] Delayed: WebSocket readyState:', (provider as any)._ws.readyState);
+        }
+      }, 1000);
+      
+      // Log all provider properties to understand its structure
+      console.log('[WebSocket Debug] Provider properties:', 
+        Object.getOwnPropertyNames(provider).filter(prop => 
+          typeof (provider as any)[prop] !== 'function' && 
+          prop !== 'doc' && 
+          prop !== 'awareness'
+        ).reduce((obj, prop) => {
+          obj[prop] = (provider as any)[prop];
+          return obj;
+        }, {} as any)
+      );
     } catch (error) {
       console.error('Error creating WebSocket provider:', error);
     }
