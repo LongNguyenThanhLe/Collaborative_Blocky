@@ -843,19 +843,24 @@ export async function initCollaboration(
         roomId: formattedRoomId
       });
       
-      // Based on debugging results, try a direct connection with the room ID
-      // Don't use '/yjs' path since that's returning 404s
-      console.log('Connecting directly to the server with room ID');
+      // After multiple failed attempts with different path formats, 
+      // try connecting directly to the root endpoint
+      // The server at blockly-collab-server.onrender.com may not support
+      // path-based room routing and may use a different mechanism
+      console.log('Connecting to root WebSocket endpoint');
       
-      // Try connecting with the room name directly
       provider = new WebsocketProvider(
         websocketUrl,
-        formattedRoomId,
+        '', // Empty room name
         ydoc,
-        { connect: true }
+        { 
+          connect: true,
+          // Pass the room ID as a parameter instead
+          params: { room: formattedRoomId }
+        }
       );
       
-      console.log('WebSocket provider initialized with direct room ID:', formattedRoomId);
+      console.log('WebSocket provider initialized with room ID as parameter');
       
       // Add minimal but useful debugging
       provider.on('status', (event: { status: "connected" | "disconnected" | "connecting" }) => {
