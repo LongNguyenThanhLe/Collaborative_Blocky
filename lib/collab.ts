@@ -827,42 +827,31 @@ export async function initCollaboration(
       console.log(`Using WebSocket URL: ${websocketUrl}`);
     }
 
-    // Create Yjs WebSocket provider with the room ID as the document name
+    // Create custom WebSocket provider with explicit URL construction
+    console.log('Creating custom WebSocket provider');
+    
+    // Format the room ID to be compatible with the WebSocket server
+    // Remove the room_ prefix if it exists as the server may not expect it
+    const formattedRoomId = roomId.startsWith('room_') 
+      ? roomId.substring(5) // Remove 'room_' prefix
+      : roomId;
+    
+    const finalWsUrl = new URL(websocketUrl);
+    finalWsUrl.pathname = `/yjs/${formattedRoomId}`;
+    
     let provider: WebsocketProvider | null = null;
     
     try {
-      // Format the room ID to be compatible with the WebSocket server
-      // Remove the room_ prefix if it exists as the server may not expect it
-      const formattedRoomId = roomId.startsWith('room_') 
-        ? roomId.substring(5) // Remove 'room_' prefix
-        : roomId;
-      
-      // Log connection attempt details for debugging
-      console.log('Attempting WebSocket connection with:', {
-        baseUrl: websocketUrl,
-        roomId: formattedRoomId
-      });
-      
-      // After multiple failed attempts with different path formats, 
-      // try connecting directly to the root endpoint
-      // The server at blockly-collab-server.onrender.com may not support
-      // path-based room routing and may use a different mechanism
-      console.log('Connecting to root WebSocket endpoint');
-      
       provider = new WebsocketProvider(
-        websocketUrl,
-        '', // Empty room name
+        finalWsUrl.toString(),
+        'collaborative-blockly', // Room name becomes irrelevant here
         ydoc,
-        { 
-          connect: true,
-          // Pass the room ID as a parameter instead
-          params: { room: formattedRoomId }
-        }
+        { connect: true }
       );
       
-      console.log('WebSocket provider initialized with room ID as parameter');
+      console.log('Custom WebSocket URL:', finalWsUrl.toString());
       
-      // Add minimal but useful debugging
+      // Add enhanced debugging
       provider.on('status', (event: { status: "connected" | "disconnected" | "connecting" }) => {
         console.log(`WebSocket connection status: ${event.status}`);
       });
@@ -874,6 +863,14 @@ export async function initCollaboration(
         const wsInstance = (provider as any)._ws;
         if (wsInstance) {
           console.log('Actual WebSocket URL used:', wsInstance.url);
+        }
+      });
+      
+      provider.on('connection-close', (event: CloseEvent | null, provider: WebsocketProvider) => {
+        if (event) {
+          console.log(`WebSocket connection closed. Code: ${event.code}, Reason: ${event.reason}`);
+        } else {
+          console.log('WebSocket connection closed (no event details)');
         }
       });
     } catch (error) {
