@@ -294,7 +294,7 @@ export async function createNewRoom(roomName: string, userId: string): Promise<s
   }
 }
 
-// Set up collaboration in the workspace
+// Set up collaboration in the workspace with per-block synchronization
 export function setupBlocklySync(workspace: any, ydoc: Y.Doc, options?: {blockly: any}) {
   // Get the Blockly instance from options - make sure we access it safely
   const Blockly = options?.blockly;
@@ -303,180 +303,406 @@ export function setupBlocklySync(workspace: any, ydoc: Y.Doc, options?: {blockly
     return () => {};
   }
   
-  // Safely access Blockly methods with more robust checks and fallbacks
-  const getBlocklyXml = (blockly: any) => {
-    if (!blockly) return null;
+  console.log('Setting up per-block synchronization');
+  
+  // Create shared data structures
+  const sharedBlocks = ydoc.getMap('blocks');
+  const sharedBlocksData = ydoc.getMap('blocksData');
+  const sharedConnections = ydoc.getMap('connections');
+  const sharedWorkspaceState = ydoc.getMap('workspaceState');
+  
+  // Track local changes to avoid loops
+  let isApplyingRemoteChanges = false;
+  
+  // Helper to serialize a block to a simple object
+  const serializeBlock = (block: any) => {
+    if (!block) return null;
     
-    // Store attempts to find Blockly.Xml for better debugging
-    const attempts: string[] = [];
-    
-    // Try different ways to access Blockly.Xml
-    // This handles various ways Blockly might be bundled in production
-    if (blockly.Xml && typeof blockly.Xml.workspaceToDom === 'function') {
-      attempts.push('Direct Blockly.Xml access');
-      return blockly.Xml;
-    } else if ((blockly as any).Xml && typeof (blockly as any).Xml.workspaceToDom === 'function') {
-      attempts.push('Cast Blockly access');
-      return (blockly as any).Xml;
-    } else if (typeof window !== 'undefined' && (window as any).Blockly && (window as any).Blockly.Xml) {
-      attempts.push('Window global Blockly.Xml access');
-      return (window as any).Blockly.Xml;
-    } else if (blockly.module && blockly.module.exports && blockly.module.exports.Xml) {
-      attempts.push('CommonJS module pattern');
-      return blockly.module.exports.Xml;
-    } else if (workspace && workspace.Blockly && workspace.Blockly.Xml) {
-      attempts.push('Workspace Blockly property');
-      return workspace.Blockly.Xml;
-    } else if (typeof window !== 'undefined' && (window as any).BlocklyXml) {
-      attempts.push('Custom window.BlocklyXml reference');
-      return (window as any).BlocklyXml;
-    }
-    
-    // Last resort: if the workspace has necessary XML methods directly, create a proxy
-    if (workspace) {
-      const xmlMethods = {
-        workspaceToDom: workspace.workspaceToDom || workspace.getWorkspaceToDom,
-        domToWorkspace: workspace.domToWorkspace || workspace.domToWorkspace,
-        textToDom: workspace.textToDom || null,
-        domToText: workspace.domToText || null
+    try {
+      // Get basic block data
+      const blockData: any = {
+        id: block.id,
+        type: block.type,
+        x: block.getRelativeToSurfaceXY().x,
+        y: block.getRelativeToSurfaceXY().y,
+        fields: {},
+        inputs: {},
+        collapsed: block.isCollapsed(),
+        disabled: block.disabled,
+        deletable: block.isDeletable(),
+        movable: block.isMovable(),
+        editable: block.isEditable(),
       };
       
-      if (xmlMethods.workspaceToDom && xmlMethods.domToWorkspace) {
-        attempts.push('Creating Xml proxy from workspace methods');
-        return xmlMethods;
-      }
-    }
-    
-    console.error('Unable to find Blockly.Xml methods. Attempts made:', attempts.join(', '));
-    return null;
-  };
-
-  // Try to get Blockly.Xml with a few retries, waiting for it to be available
-  let retryCount = 0;
-  const maxRetries = 3;
-  let BlocklyXml: any = null;
-  
-  const getXmlWithRetry = () => {
-    BlocklyXml = getBlocklyXml(Blockly);
-    
-    if (!BlocklyXml && retryCount < maxRetries) {
-      retryCount++;
-      console.log(`Retrying to access Blockly.Xml (attempt ${retryCount}/${maxRetries})...`);
-      setTimeout(getXmlWithRetry, 1000); // Retry after 1 second
-      return;
-    }
-    
-    if (!BlocklyXml || typeof BlocklyXml.workspaceToDom !== 'function' || typeof BlocklyXml.domToText !== 'function') {
-      console.error('Blockly.Xml methods not found after retries. This can happen in production builds if Blockly is not properly imported.');
-      return;
-    }
-    
-    // If we got here, we have BlocklyXml, so we can continue with setup
-    setupSharedBlocks();
-  };
-
-  // Function to set up the shared blocks map and observers
-  const setupSharedBlocks = () => {
-    // Create a shared XML map in the Yjs document
-    const sharedBlocks = ydoc.getMap('blocks');
-    
-    // Initialize with current workspace if the shared document is empty
-    if (sharedBlocks.size === 0 && workspace) {
-      try {
-        const xml = BlocklyXml.workspaceToDom(workspace);
-        const xmlString = BlocklyXml.domToText(xml);
-        sharedBlocks.set('current', xmlString);
-      } catch (error) {
-        console.error('Error initializing shared blocks:', error);
-      }
-    }
-    
-    // Observable for changes in the shared blocks
-    const blockObserver = (event: Y.YMapEvent<any>) => {
-      // Skip if we're the one making the change
-      if (event.transaction.local) return;
-  
-      // Get the new XML content from the event
-      if (event.changes.keys.has('current')) {
-        try {
-          const xmlString = sharedBlocks.get('current');
-          if (!xmlString || !workspace) return;
-  
-          // Apply changes only if BlocklyXml is available
-          if (!BlocklyXml) {
-            console.error('Cannot apply changes: Blockly.Xml methods not available');
-            return;
+      // Get field values
+      if (block.inputList) {
+        block.inputList.forEach((input: any) => {
+          if (input.fieldRow) {
+            input.fieldRow.forEach((field: any) => {
+              if (field.name && field.getValue) {
+                blockData.fields[field.name] = field.getValue();
+              }
+            });
           }
+        });
+      }
+      
+      // Get connections
+      if (block.previousConnection) {
+        const targetBlock = block.previousConnection.targetBlock();
+        if (targetBlock) {
+          blockData.previousConnection = targetBlock.id;
+        }
+      }
+      
+      if (block.nextConnection) {
+        const targetBlock = block.nextConnection.targetBlock();
+        if (targetBlock) {
+          blockData.nextConnection = targetBlock.id;
+        }
+      }
+      
+      // Handle input connections
+      if (block.inputList) {
+        block.inputList.forEach((input: any) => {
+          if (input.connection && input.connection.targetBlock()) {
+            blockData.inputs[input.name] = input.connection.targetBlock().id;
+          }
+        });
+      }
+      
+      return blockData;
+    } catch (error) {
+      console.error('Error serializing block:', error);
+      return null;
+    }
+  };
   
-          // Apply changes carefully to avoid disrupting the workspace
-          workspace.setResizesEnabled?.(false); // temporarily disable resizes
-          
-          try {
-            // Clear the workspace and load new content
-            workspace.clear();
-            if (typeof BlocklyXml.domToWorkspace === 'function') {
-              const dom = BlocklyXml.textToDom(xmlString);
-              BlocklyXml.domToWorkspace(dom, workspace);
+  // Helper to create a block from serialized data
+  const deserializeBlock = (blockData: any) => {
+    if (!blockData || !workspace) return null;
+    
+    try {
+      // Check if block already exists
+      let block = workspace.getBlockById(blockData.id);
+      
+      // If block doesn't exist, create it
+      if (!block) {
+        block = workspace.newBlock(blockData.type, blockData.id);
+        block.initSvg();
+        block.render();
+      }
+      
+      // Set position
+      block.moveBy(blockData.x - block.getRelativeToSurfaceXY().x, 
+                  blockData.y - block.getRelativeToSurfaceXY().y);
+      
+      // Set fields
+      for (const fieldName in blockData.fields) {
+        const field = block.getField(fieldName);
+        if (field && field.setValue) {
+          field.setValue(blockData.fields[fieldName]);
+        }
+      }
+      
+      // Set state
+      if (blockData.collapsed) block.setCollapsed(true);
+      if (blockData.disabled) block.setDisabled(true);
+      block.setDeletable(blockData.deletable);
+      block.setMovable(blockData.movable);
+      block.setEditable(blockData.editable);
+      
+      return block;
+    } catch (error) {
+      console.error('Error deserializing block:', error);
+      return null;
+    }
+  };
+  
+  // Helper to connect blocks based on connection data
+  const connectBlocks = () => {
+    const connectionData = sharedConnections.toJSON();
+    
+    for (const blockId in connectionData) {
+      const connections = connectionData[blockId];
+      const block = workspace.getBlockById(blockId);
+      
+      if (!block) continue;
+      
+      // Handle previous connection
+      if (connections.previous) {
+        const targetBlock = workspace.getBlockById(connections.previous);
+        if (targetBlock && block.previousConnection && targetBlock.nextConnection) {
+          block.previousConnection.connect(targetBlock.nextConnection);
+        }
+      }
+      
+      // Handle next connection
+      if (connections.next) {
+        const targetBlock = workspace.getBlockById(connections.next);
+        if (targetBlock && block.nextConnection && targetBlock.previousConnection) {
+          block.nextConnection.connect(targetBlock.previousConnection);
+        }
+      }
+      
+      // Handle input connections
+      for (const inputName in connections.inputs) {
+        const targetBlockId = connections.inputs[inputName];
+        const targetBlock = workspace.getBlockById(targetBlockId);
+        const input = block.getInput(inputName);
+        
+        if (targetBlock && input && input.connection) {
+          const targetConnection = targetBlock.outputConnection || 
+                                  targetBlock.previousConnection;
+          if (targetConnection) {
+            input.connection.connect(targetConnection);
+          }
+        }
+      }
+    }
+  };
+  
+  // Sync the entire workspace initially or when needed
+  const syncFullWorkspace = () => {
+    if (isApplyingRemoteChanges) return;
+    
+    try {
+      isApplyingRemoteChanges = true;
+      
+      // Clear shared data
+      sharedBlocks.clear();
+      sharedBlocksData.clear();
+      sharedConnections.clear();
+      
+      // Get all blocks
+      const blocks = workspace.getAllBlocks(false);
+      
+      // First pass: serialize all blocks
+      blocks.forEach((block: any) => {
+        const blockData = serializeBlock(block);
+        if (blockData) {
+          sharedBlocks.set(block.id, true);
+          sharedBlocksData.set(block.id, blockData);
+        }
+      });
+      
+      // Second pass: store connections
+      blocks.forEach((block: any) => {
+        const connections: any = { inputs: {} };
+        
+        // Previous connection
+        if (block.previousConnection && block.previousConnection.targetBlock()) {
+          connections.previous = block.previousConnection.targetBlock().id;
+        }
+        
+        // Next connection
+        if (block.nextConnection && block.nextConnection.targetBlock()) {
+          connections.next = block.nextConnection.targetBlock().id;
+        }
+        
+        // Input connections
+        if (block.inputList) {
+          block.inputList.forEach((input: any) => {
+            if (input.connection && input.connection.targetBlock()) {
+              connections.inputs[input.name] = input.connection.targetBlock().id;
             }
-          } catch (error) {
-            console.error('Error applying XML to workspace:', error);
-          } finally {
-            workspace.setResizesEnabled?.(true); // re-enable resizes
-          }
-        } catch (error) {
-          console.error('Error processing block change:', error);
+          });
         }
-      }
-    };
-  
-    // Observe changes to the shared blocks
-    sharedBlocks.observe(blockObserver);
-  
-    // Handle changes to the workspace and update the shared blocks
-    const changeListener = () => {
-      try {
-        // Make sure we still have access to BlocklyXml
-        if (!BlocklyXml) {
-          console.error('Cannot apply changes: Blockly.Xml methods not available');
-          return;
-        }
-  
-        // Get the current workspace as XML
-        const xml = BlocklyXml.workspaceToDom(workspace);
-        const xmlString = BlocklyXml.domToText(xml);
         
-        // Update the shared document
-        sharedBlocks.set('current', xmlString);
-        
-        // Generate and log code for debugging purposes
-        if (workspace && workspace.Blockly && workspace.Blockly.JavaScript) {
-          const code = workspace.Blockly.JavaScript.workspaceToCode(workspace);
-          console.log('Generated code:', code);
-        }
-      } catch (error) {
-        console.error('Error updating shared blocks:', error);
+        sharedConnections.set(block.id, connections);
+      });
+      
+      // Store workspace state (viewport, etc.)
+      const metrics = workspace.getMetrics();
+      if (metrics) {
+        sharedWorkspaceState.set('viewportLeft', metrics.viewLeft);
+        sharedWorkspaceState.set('viewportTop', metrics.viewTop);
+        sharedWorkspaceState.set('scale', workspace.scale);
       }
-    };
-  
-    // Listen for changes to the workspace
-    if (workspace && workspace.addChangeListener) {
-      workspace.addChangeListener(changeListener);
+      
+      console.log('Synchronized full workspace with', blocks.length, 'blocks');
+    } catch (error) {
+      console.error('Error syncing full workspace:', error);
+    } finally {
+      isApplyingRemoteChanges = false;
     }
-  
-    // Return a cleanup function to remove listeners
-    return () => {
-      if (workspace && workspace.removeChangeListener) {
-        workspace.removeChangeListener(changeListener);
-      }
-      sharedBlocks.unobserve(blockObserver);
-    };
   };
   
-  // Start the process
-  getXmlWithRetry();
+  // Apply remote changes to the workspace
+  const applyRemoteChanges = () => {
+    if (isApplyingRemoteChanges) return;
+    
+    try {
+      isApplyingRemoteChanges = true;
+      
+      // Temporarily disable events
+      workspace.setResizesEnabled(false);
+      Blockly.Events.disable();
+      
+      // Clear workspace
+      workspace.clear();
+      
+      // Create all blocks first
+      const blockIds = Array.from(sharedBlocksData.keys());
+      blockIds.forEach(blockId => {
+        const blockData = sharedBlocksData.get(blockId);
+        if (blockData) {
+          deserializeBlock(blockData);
+        }
+      });
+      
+      // Then connect blocks
+      connectBlocks();
+      
+      // Apply workspace state
+      const viewportLeft = sharedWorkspaceState.get('viewportLeft');
+      const viewportTop = sharedWorkspaceState.get('viewportTop');
+      const scale = sharedWorkspaceState.get('scale');
+      
+      if (viewportLeft !== undefined && viewportTop !== undefined) {
+        workspace.scroll(viewportLeft, viewportTop);
+      }
+      
+      if (scale !== undefined && typeof workspace.setScale === 'function') {
+        workspace.setScale(scale);
+      }
+      
+      console.log('Applied remote changes with', blockIds.length, 'blocks');
+    } catch (error) {
+      console.error('Error applying remote changes:', error);
+    } finally {
+      // Re-enable events
+      workspace.setResizesEnabled(true);
+      Blockly.Events.enable();
+      isApplyingRemoteChanges = false;
+    }
+  };
   
-  // Return a placeholder cleanup function
-  return () => {};
+  // Initialize workspace if shared data is empty
+  if (sharedBlocks.size === 0) {
+    console.log('Initializing shared workspace data');
+    syncFullWorkspace();
+  } else {
+    console.log('Applying existing shared workspace data');
+    applyRemoteChanges();
+  }
+  
+  // Listen for changes to the workspace
+  const changeListener = (event: any) => {
+    if (isApplyingRemoteChanges) return;
+    
+    try {
+      // Handle different types of events
+      if (event.type === Blockly.Events.BLOCK_CREATE) {
+        const block = workspace.getBlockById(event.blockId);
+        if (block) {
+          const blockData = serializeBlock(block);
+          if (blockData) {
+            sharedBlocks.set(block.id, true);
+            sharedBlocksData.set(block.id, blockData);
+          }
+        }
+      } else if (event.type === Blockly.Events.BLOCK_DELETE) {
+        sharedBlocks.delete(event.blockId);
+        sharedBlocksData.delete(event.blockId);
+        sharedConnections.delete(event.blockId);
+      } else if (event.type === Blockly.Events.BLOCK_CHANGE || 
+                event.type === Blockly.Events.BLOCK_MOVE) {
+        const block = workspace.getBlockById(event.blockId);
+        if (block) {
+          const blockData = serializeBlock(block);
+          if (blockData) {
+            sharedBlocksData.set(block.id, blockData);
+            
+            // Update connections
+            const connections: any = { inputs: {} };
+            
+            if (block.previousConnection && block.previousConnection.targetBlock()) {
+              connections.previous = block.previousConnection.targetBlock().id;
+            }
+            
+            if (block.nextConnection && block.nextConnection.targetBlock()) {
+              connections.next = block.nextConnection.targetBlock().id;
+            }
+            
+            if (block.inputList) {
+              block.inputList.forEach((input: any) => {
+                if (input.connection && input.connection.targetBlock()) {
+                  connections.inputs[input.name] = input.connection.targetBlock().id;
+                }
+              });
+            }
+            
+            sharedConnections.set(block.id, connections);
+          }
+        }
+      } else if (event.type === Blockly.Events.VIEWPORT_CHANGE) {
+        const metrics = workspace.getMetrics();
+        if (metrics) {
+          sharedWorkspaceState.set('viewportLeft', metrics.viewLeft);
+          sharedWorkspaceState.set('viewportTop', metrics.viewTop);
+          sharedWorkspaceState.set('scale', workspace.scale);
+        }
+      }
+    } catch (error) {
+      console.error('Error handling workspace change:', error);
+    }
+  };
+  
+  // Observe changes to shared data
+  const blocksObserver = (event: Y.YMapEvent<any>) => {
+    if (event.transaction.local) return;
+    applyRemoteChanges();
+  };
+  
+  const blocksDataObserver = (event: Y.YMapEvent<any>) => {
+    if (event.transaction.local) return;
+    applyRemoteChanges();
+  };
+  
+  const connectionsObserver = (event: Y.YMapEvent<any>) => {
+    if (event.transaction.local) return;
+    applyRemoteChanges();
+  };
+  
+  const workspaceStateObserver = (event: Y.YMapEvent<any>) => {
+    if (event.transaction.local) return;
+    
+    try {
+      // Only update viewport if not editing
+      if (!Blockly.draggingConnections_) {
+        const viewportLeft = sharedWorkspaceState.get('viewportLeft');
+        const viewportTop = sharedWorkspaceState.get('viewportTop');
+        const scale = sharedWorkspaceState.get('scale');
+        
+        if (viewportLeft !== undefined && viewportTop !== undefined) {
+          workspace.scroll(viewportLeft, viewportTop);
+        }
+        
+        if (scale !== undefined && typeof workspace.setScale === 'function') {
+          workspace.setScale(scale);
+        }
+      }
+    } catch (error) {
+      console.error('Error applying workspace state:', error);
+    }
+  };
+  
+  // Add observers and listeners
+  sharedBlocks.observe(blocksObserver);
+  sharedBlocksData.observe(blocksDataObserver);
+  sharedConnections.observe(connectionsObserver);
+  sharedWorkspaceState.observe(workspaceStateObserver);
+  workspace.addChangeListener(changeListener);
+  
+  // Return cleanup function
+  return () => {
+    workspace.removeChangeListener(changeListener);
+    sharedBlocks.unobserve(blocksObserver);
+    sharedBlocksData.unobserve(blocksDataObserver);
+    sharedConnections.unobserve(connectionsObserver);
+    sharedWorkspaceState.unobserve(workspaceStateObserver);
+  };
 }
 
 // Set up cursor tracking between users

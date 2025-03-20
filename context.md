@@ -114,6 +114,16 @@ BlocklyCollab is an enhanced version of Google's Blockly programming environment
   - Added additional logging and debugging information for collaboration features
   - Optimized cursor updates to reduce network traffic (position throttling)
   - Enhanced error handling in WebSocket provider and cursor tracking functions
+- **2025-03-26**:
+  - Completely redesigned the block synchronization mechanism:
+    - Implemented granular per-block synchronization instead of XML-based serialization
+    - Each block is now synchronized as an independent object (similar to Figma's approach)
+    - Blocks position, connections, and properties are tracked separately
+    - Real-time synchronization of individual block movements and changes
+    - Improved collaboration stability and responsiveness
+    - Fixed issues with block visibility across different users
+    - Enhanced cursor tracking to work with the new synchronization model
+    - Added more detailed logging for debugging collaboration issues
 
 ## Firebase Optimization
 - Implemented in-memory cache for room data with 5-minute expiry
