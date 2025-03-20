@@ -303,141 +303,180 @@ export function setupBlocklySync(workspace: any, ydoc: Y.Doc, options?: {blockly
     return () => {};
   }
   
-  // Safely access Blockly methods
+  // Safely access Blockly methods with more robust checks and fallbacks
   const getBlocklyXml = (blockly: any) => {
     if (!blockly) return null;
+    
+    // Store attempts to find Blockly.Xml for better debugging
+    const attempts: string[] = [];
     
     // Try different ways to access Blockly.Xml
     // This handles various ways Blockly might be bundled in production
     if (blockly.Xml && typeof blockly.Xml.workspaceToDom === 'function') {
+      attempts.push('Direct Blockly.Xml access');
       return blockly.Xml;
     } else if ((blockly as any).Xml && typeof (blockly as any).Xml.workspaceToDom === 'function') {
+      attempts.push('Cast Blockly access');
       return (blockly as any).Xml;
     } else if (typeof window !== 'undefined' && (window as any).Blockly && (window as any).Blockly.Xml) {
+      attempts.push('Window global Blockly.Xml access');
       return (window as any).Blockly.Xml;
     } else if (blockly.module && blockly.module.exports && blockly.module.exports.Xml) {
-      // Handle CommonJS pattern
+      attempts.push('CommonJS module pattern');
       return blockly.module.exports.Xml;
+    } else if (workspace && workspace.Blockly && workspace.Blockly.Xml) {
+      attempts.push('Workspace Blockly property');
+      return workspace.Blockly.Xml;
+    } else if (typeof window !== 'undefined' && (window as any).BlocklyXml) {
+      attempts.push('Custom window.BlocklyXml reference');
+      return (window as any).BlocklyXml;
     }
     
-    console.error('Unable to find Blockly.Xml methods in any expected location');
+    // Last resort: if the workspace has necessary XML methods directly, create a proxy
+    if (workspace) {
+      const xmlMethods = {
+        workspaceToDom: workspace.workspaceToDom || workspace.getWorkspaceToDom,
+        domToWorkspace: workspace.domToWorkspace || workspace.domToWorkspace,
+        textToDom: workspace.textToDom || null,
+        domToText: workspace.domToText || null
+      };
+      
+      if (xmlMethods.workspaceToDom && xmlMethods.domToWorkspace) {
+        attempts.push('Creating Xml proxy from workspace methods');
+        return xmlMethods;
+      }
+    }
+    
+    console.error('Unable to find Blockly.Xml methods. Attempts made:', attempts.join(', '));
     return null;
   };
 
-  const BlocklyXml = getBlocklyXml(Blockly);
-  if (!BlocklyXml || typeof BlocklyXml.workspaceToDom !== 'function' || typeof BlocklyXml.domToText !== 'function') {
-    console.error('Blockly.Xml methods not found. This can happen in production builds if Blockly is not properly imported.');
-    return () => {};
-  }
+  // Try to get Blockly.Xml with a few retries, waiting for it to be available
+  let retryCount = 0;
+  const maxRetries = 3;
+  let BlocklyXml: any = null;
   
-  // Create a shared XML map in the Yjs document
-  const sharedBlocks = ydoc.getMap('blocks');
-  
-  // Initialize with current workspace if the shared document is empty
-  if (sharedBlocks.size === 0 && workspace) {
-    try {
-      const xml = BlocklyXml.workspaceToDom(workspace);
-      const xmlString = BlocklyXml.domToText(xml);
-      sharedBlocks.set('current', xmlString);
-    } catch (error) {
-      console.error('Error initializing shared blocks:', error);
+  const getXmlWithRetry = () => {
+    BlocklyXml = getBlocklyXml(Blockly);
+    
+    if (!BlocklyXml && retryCount < maxRetries) {
+      retryCount++;
+      console.log(`Retrying to access Blockly.Xml (attempt ${retryCount}/${maxRetries})...`);
+      setTimeout(getXmlWithRetry, 1000); // Retry after 1 second
+      return;
     }
-  }
-  
-  // Observable for changes in the shared blocks
-  const blockObserver = (event: Y.YMapEvent<any>) => {
-    // Skip if we're the one making the change
-    if (event.transaction.local) return;
+    
+    if (!BlocklyXml || typeof BlocklyXml.workspaceToDom !== 'function' || typeof BlocklyXml.domToText !== 'function') {
+      console.error('Blockly.Xml methods not found after retries. This can happen in production builds if Blockly is not properly imported.');
+      return;
+    }
+    
+    // If we got here, we have BlocklyXml, so we can continue with setup
+    setupSharedBlocks();
+  };
 
-    // Get the new XML content from the event
-    if (event.changes.keys.has('current')) {
+  // Function to set up the shared blocks map and observers
+  const setupSharedBlocks = () => {
+    // Create a shared XML map in the Yjs document
+    const sharedBlocks = ydoc.getMap('blocks');
+    
+    // Initialize with current workspace if the shared document is empty
+    if (sharedBlocks.size === 0 && workspace) {
       try {
-        const xmlString = sharedBlocks.get('current');
-        if (!xmlString || !workspace) return;
-
-        // Safely access Blockly XML methods with multiple fallbacks
-        if (BlocklyXml && typeof BlocklyXml.textToDom === 'function') {
-          const dom = BlocklyXml.textToDom(xmlString);
-          
-          // Carefully apply the changes to avoid disrupting the workspace
-          workspace.setResizesEnabled(false); // temporarily disable resizes
+        const xml = BlocklyXml.workspaceToDom(workspace);
+        const xmlString = BlocklyXml.domToText(xml);
+        sharedBlocks.set('current', xmlString);
+      } catch (error) {
+        console.error('Error initializing shared blocks:', error);
+      }
+    }
+    
+    // Observable for changes in the shared blocks
+    const blockObserver = (event: Y.YMapEvent<any>) => {
+      // Skip if we're the one making the change
+      if (event.transaction.local) return;
+  
+      // Get the new XML content from the event
+      if (event.changes.keys.has('current')) {
+        try {
+          const xmlString = sharedBlocks.get('current');
+          if (!xmlString || !workspace) return;
+  
+          // Apply changes only if BlocklyXml is available
+          if (!BlocklyXml) {
+            console.error('Cannot apply changes: Blockly.Xml methods not available');
+            return;
+          }
+  
+          // Apply changes carefully to avoid disrupting the workspace
+          workspace.setResizesEnabled?.(false); // temporarily disable resizes
           
           try {
             // Clear the workspace and load new content
             workspace.clear();
             if (typeof BlocklyXml.domToWorkspace === 'function') {
+              const dom = BlocklyXml.textToDom(xmlString);
               BlocklyXml.domToWorkspace(dom, workspace);
             }
+          } catch (error) {
+            console.error('Error applying XML to workspace:', error);
           } finally {
-            workspace.setResizesEnabled(true); // re-enable resizes
+            workspace.setResizesEnabled?.(true); // re-enable resizes
           }
-        } else if (typeof window !== 'undefined' && 
-                   (window as any).Blockly && 
-                   (window as any).Blockly.Xml) {
-          // Alternative: try using global Blockly object if available
-          const dom = (window as any).Blockly.Xml.textToDom(xmlString);
-          workspace.setResizesEnabled(false);
-          try {
-            workspace.clear();
-            (window as any).Blockly.Xml.domToWorkspace(dom, workspace);
-          } finally {
-            workspace.setResizesEnabled(true);
-          }
-        } else {
+        } catch (error) {
+          console.error('Error processing block change:', error);
+        }
+      }
+    };
+  
+    // Observe changes to the shared blocks
+    sharedBlocks.observe(blockObserver);
+  
+    // Handle changes to the workspace and update the shared blocks
+    const changeListener = () => {
+      try {
+        // Make sure we still have access to BlocklyXml
+        if (!BlocklyXml) {
           console.error('Cannot apply changes: Blockly.Xml methods not available');
+          return;
+        }
+  
+        // Get the current workspace as XML
+        const xml = BlocklyXml.workspaceToDom(workspace);
+        const xmlString = BlocklyXml.domToText(xml);
+        
+        // Update the shared document
+        sharedBlocks.set('current', xmlString);
+        
+        // Generate and log code for debugging purposes
+        if (workspace && workspace.Blockly && workspace.Blockly.JavaScript) {
+          const code = workspace.Blockly.JavaScript.workspaceToCode(workspace);
+          console.log('Generated code:', code);
         }
       } catch (error) {
-        console.error('Error applying workspace changes:', error);
+        console.error('Error updating shared blocks:', error);
       }
-    }
-  };
+    };
   
-  // Observe changes to the shared blocks
-  sharedBlocks.observe(blockObserver);
-  
-  // Update shared state when the workspace changes
-  const workspaceChangeListener = (event: any) => {
-    // Skip UI events and those caused by workspace loading
-    if (event.type === 'ui' || event.isUiEvent || workspace.isDragging()) {
-      return;
+    // Listen for changes to the workspace
+    if (workspace && workspace.addChangeListener) {
+      workspace.addChangeListener(changeListener);
     }
-
-    try {
-      // Only update if BlocklyXml is available and workspace exists
-      if (BlocklyXml && typeof BlocklyXml.workspaceToDom === 'function' && workspace) {
-        const dom = BlocklyXml.workspaceToDom(workspace);
-        
-        // Make sure we can convert DOM to text
-        if (typeof BlocklyXml.domToText === 'function') {
-          const text = BlocklyXml.domToText(dom);
-          // Update shared state without triggering our own observer
-          sharedBlocks.set('current', text);
-        } else if (typeof window !== 'undefined' && 
-                  (window as any).Blockly && 
-                  (window as any).Blockly.Xml && 
-                  typeof (window as any).Blockly.Xml.domToText === 'function') {
-          // Try using global Blockly if available
-          const text = (window as any).Blockly.Xml.domToText(dom);
-          sharedBlocks.set('current', text);
-        } else {
-          console.warn('Cannot update shared blocks: Blockly.Xml.domToText not available');
-        }
-      } else {
-        console.warn('Cannot update shared blocks: Blockly.Xml.workspaceToDom not available');
+  
+    // Return a cleanup function to remove listeners
+    return () => {
+      if (workspace && workspace.removeChangeListener) {
+        workspace.removeChangeListener(changeListener);
       }
-    } catch (error) {
-      console.error('Error updating shared blocks:', error);
-    }
+      sharedBlocks.unobserve(blockObserver);
+    };
   };
   
-  // Set up change listener on the workspace
-  workspace.addChangeListener(workspaceChangeListener);
+  // Start the process
+  getXmlWithRetry();
   
-  // Return cleanup function
-  return () => {
-    workspace.removeChangeListener(workspaceChangeListener);
-    sharedBlocks.unobserve(blockObserver);
-  };
+  // Return a placeholder cleanup function
+  return () => {};
 }
 
 // Set up cursor tracking between users
@@ -447,17 +486,22 @@ export function setupCursorTracking(workspace: any, ydoc: Y.Doc, provider: any, 
     return () => {};
   }
   
+  console.log('Setting up cursor tracking with user:', user);
+  
   // Map to store cursor elements for each user
   const cursors = new Map();
   
   // Set local user information if provided
   if (user && provider.awareness) {
     const localState = provider.awareness.getLocalState() || {};
+    console.log('Setting local awareness state for cursor tracking');
     provider.awareness.setLocalState({
       ...localState,
       name: user.name || localState.name || 'Anonymous',
       email: user.email || localState.email || '',
-      color: user.color || localState.color || getRandomColor()
+      color: user.color || localState.color || getRandomColor(),
+      // Include cursor position if not already set
+      cursor: localState.cursor || { x: 0, y: 0 }
     });
   }
   
@@ -471,10 +515,15 @@ export function setupCursorTracking(workspace: any, ydoc: Y.Doc, provider: any, 
     // Don't create cursor for current user
     if (clientId === provider.awareness.clientID) return;
     
+    console.log(`Creating cursor for user ${state.name || 'Unknown'} (${clientId})`);
+    
     // Remove existing cursor if any
     removeCursor(clientId);
     
-    if (!state.cursor) return;
+    if (!state.cursor) {
+      console.warn(`User ${clientId} has no cursor position`);
+      return;
+    }
     
     try {
       // Create cursor element
@@ -486,6 +535,9 @@ export function setupCursorTracking(workspace: any, ydoc: Y.Doc, provider: any, 
       cursorEl.style.backgroundColor = state.color || '#ff0000';
       cursorEl.style.zIndex = '100';
       cursorEl.style.pointerEvents = 'none';
+      
+      // Make cursor more visible with a border
+      cursorEl.style.border = '1px solid white';
       
       // Add user label
       const label = document.createElement('div');
@@ -503,14 +555,23 @@ export function setupCursorTracking(workspace: any, ydoc: Y.Doc, provider: any, 
       
       cursorEl.appendChild(label);
       
+      // Find the appropriate container - try to use the injection div
+      const injectionDiv = workspace.getInjectionDiv();
+      if (!injectionDiv) {
+        console.error('Could not find Blockly injection div');
+        return;
+      }
+      
       // Add to workspace
-      workspace.getInjectionDiv().appendChild(cursorEl);
+      injectionDiv.appendChild(cursorEl);
       
       // Store cursor element
       cursors.set(clientId, { element: cursorEl, state });
       
       // Update cursor position based on state
       updateCursorPosition(clientId);
+      
+      console.log(`Cursor created for user ${state.name || 'Unknown'} (${clientId})`);
     } catch (error) {
       console.error('Error creating cursor:', error);
     }
@@ -521,6 +582,7 @@ export function setupCursorTracking(workspace: any, ydoc: Y.Doc, provider: any, 
     const cursor = cursors.get(clientId);
     if (cursor && cursor.element) {
       cursor.element.remove();
+      console.log(`Removed cursor for client ${clientId}`);
     }
     cursors.delete(clientId);
   };
@@ -531,11 +593,8 @@ export function setupCursorTracking(workspace: any, ydoc: Y.Doc, provider: any, 
     if (!cursor || !cursor.state.cursor) return;
     
     try {
-      // Safely create workspace coordinate
-      let workspaceCoordinate;
-      
-      // Create a simple coordinate object as fallback
-      workspaceCoordinate = {
+      // Get cursor position from state
+      const workspaceCoordinate = {
         x: cursor.state.cursor.x,
         y: cursor.state.cursor.y
       };
@@ -565,7 +624,9 @@ export function setupCursorTracking(workspace: any, ydoc: Y.Doc, provider: any, 
         if (injectionDiv && cursor.element) {
           // Get workspace scale and offset
           const scale = workspace.scale || 1;
-          const { x: offsetX, y: offsetY } = workspace.getMetrics() || { x: 0, y: 0 };
+          const metrics = workspace.getMetrics && workspace.getMetrics();
+          const offsetX = metrics ? metrics.viewLeft || 0 : 0;
+          const offsetY = metrics ? metrics.viewTop || 0 : 0;
           
           // Apply scale and offset manually
           const screenX = workspaceCoordinate.x * scale + offsetX;
@@ -584,16 +645,16 @@ export function setupCursorTracking(workspace: any, ydoc: Y.Doc, provider: any, 
   const onMouseMove = (e: any) => {
     try {
       // Only track if we have a valid workspace and provider
-      if (!workspace || !provider.awareness) return;
+      if (!workspace || !provider.awareness || !provider.wsconnected) {
+        return;
+      }
       
       // Get screen coordinates
       const mouseEvent = e.getBrowserEvent ? e.getBrowserEvent() : e;
       const mouseX = mouseEvent.clientX;
       const mouseY = mouseEvent.clientY;
       
-      // Create an SVG point safely
-      let svgPoint;
-      let matrix;
+      // Create a point that we can transform
       let workspacePosition;
       
       try {
@@ -603,43 +664,48 @@ export function setupCursorTracking(workspace: any, ydoc: Y.Doc, provider: any, 
         
         if (svg && typeof svg.createSVGPoint === 'function') {
           // Use SVG API to get workspace coordinates
-          svgPoint = svg.createSVGPoint();
+          const svgPoint = svg.createSVGPoint();
           svgPoint.x = mouseX;
           svgPoint.y = mouseY;
           
-          matrix = svg.getScreenCTM().inverse();
-          workspacePosition = svgPoint.matrixTransform(matrix);
+          const matrix = svg.getScreenCTM()?.inverse();
+          if (matrix) {
+            workspacePosition = svgPoint.matrixTransform(matrix);
+          } else {
+            throw new Error('Could not get SVG matrix');
+          }
         } else {
-          // Fallback: calculate position manually
-          const rect = injectionDiv.getBoundingClientRect();
-          const scale = workspace.scale || 1;
-          
-          // Convert client coordinates to workspace coordinates
-          workspacePosition = {
-            x: (mouseX - rect.left) / scale,
-            y: (mouseY - rect.top) / scale
-          };
+          throw new Error('SVG point creation not available');
         }
       } catch (error) {
-        console.warn('Error creating SVG point, using fallback:', error);
-        
         // Fallback to basic coordinate conversion
         const injectionDiv = workspace.getInjectionDiv();
         const rect = injectionDiv.getBoundingClientRect();
         const scale = workspace.scale || 1;
+        const viewMetrics = workspace.getMetrics && workspace.getMetrics();
         
         workspacePosition = {
-          x: (mouseX - rect.left) / scale,
-          y: (mouseY - rect.top) / scale
+          x: (mouseX - rect.left) / scale + (viewMetrics ? viewMetrics.viewLeft / scale : 0),
+          y: (mouseY - rect.top) / scale + (viewMetrics ? viewMetrics.viewTop / scale : 0)
         };
       }
       
       // Update local user state with the cursor position
       const localState = provider.awareness.getLocalState() || {};
-      provider.awareness.setLocalState({
-        ...localState,
-        cursor: workspacePosition
-      });
+      
+      // Only update if position has changed significantly (throttle updates)
+      const prevCursor = localState.cursor || { x: 0, y: 0 };
+      const dx = prevCursor.x - workspacePosition.x;
+      const dy = prevCursor.y - workspacePosition.y;
+      const distance = Math.sqrt(dx * dx + dy * dy);
+      
+      // Only update if moved more than 2 pixels (to reduce network traffic)
+      if (distance > 2) {
+        provider.awareness.setLocalState({
+          ...localState,
+          cursor: workspacePosition
+        });
+      }
     } catch (error) {
       console.error('Error in mouse move handler:', error);
     }
@@ -667,66 +733,52 @@ export function setupCursorTracking(workspace: any, ydoc: Y.Doc, provider: any, 
   };
   
   // Handle awareness changes to update cursors
-  const awarenessChangeHandler = (changes: Map<number, any>) => {
+  const awarenessChangeHandler = (changes: any) => {
     try {
-      // Get all states - safely handle it whether it's iterable or not
+      console.log('Awareness change detected');
+      
+      // First update existing cursors or create new ones
       const states = provider.awareness.getStates();
       
-      // Handle states - try different approaches based on what's available
-      if (states) {
-        if (typeof states.forEach === 'function') {
-          // If states has a forEach method, use it
-          states.forEach((state: any, clientId: number) => {
-            if (clientId !== provider.awareness.clientID && state && state.cursor) {
-              createCursor(clientId, state);
-            }
-          });
-        } else if (typeof states.entries === 'function') {
-          // If states has entries method, convert to array and use forEach
-          const entries = Array.from(states.entries()) as Array<[number, any]>;
-          for (const entry of entries) {
-            const clientId = entry[0];
-            const state = entry[1];
-            if (clientId !== provider.awareness.clientID && state && state.cursor) {
+      // Process the states
+      if (states && typeof states.forEach === 'function') {
+        states.forEach((state: any, clientId: number) => {
+          // Skip the current user
+          if (clientId === provider.awareness.clientID) return;
+          
+          // Check if this user should have a cursor
+          if (state && state.cursor) {
+            // Either create a new cursor or update an existing one
+            if (cursors.has(clientId)) {
+              // Update the cursor state
+              const cursor = cursors.get(clientId);
+              cursor.state = state;
+              updateCursorPosition(clientId);
+            } else {
+              // Create a new cursor
               createCursor(clientId, state);
             }
           }
-        } else if (states instanceof Object) {
-          // Fallback: try to treat states as a plain object
-          Object.entries(states).forEach(([clientIdStr, state]) => {
-            const clientId = parseInt(clientIdStr, 10);
-            if (clientId !== provider.awareness.clientID && state && (state as any).cursor) {
-              createCursor(clientId, state as any);
-            }
-          });
-        } else {
-          console.warn('Unable to iterate through awareness states');
-        }
+        });
       }
       
-      // Safely handle changes for disconnected users
-      if (changes) {
-        if (typeof changes.forEach === 'function') {
-          // If changes has forEach method
-          changes.forEach((change, clientId) => {
-            if (change && change.user === null) removeCursor(clientId);
-          });
-        } else if (typeof changes.entries === 'function') {
-          // If changes has entries method
-          const entries = Array.from(changes.entries()) as Array<[number, any]>;
-          for (const entry of entries) {
-            const clientId = entry[0];
-            const change = entry[1];
-            if (change && change.user === null) removeCursor(clientId);
-          }
-        } else if (changes instanceof Object) {
-          // Fallback: try to iterate through it as an object
-          Object.entries(changes).forEach(([clientIdStr, change]) => {
-            const clientId = parseInt(clientIdStr, 10);
-            if (change && (change as any).user === null) removeCursor(clientId);
-          });
-        } else {
-          console.warn('Changes object is not iterable with any known method');
+      // Then handle users who disconnected or no longer have a cursor
+      // This ensures we handle the case where a user's state changes but they're still connected
+      
+      // First collect all clientIds that should have a cursor
+      const activeClientIds = new Set<number>();
+      states.forEach((state: any, clientId: number) => {
+        if (state && state.cursor) {
+          activeClientIds.add(clientId);
+        }
+      });
+      
+      // Then remove cursors for clients that are no longer active
+      // Convert to array first to avoid iteration issues with Map.keys()
+      const cursorKeys = Array.from(cursors.keys());
+      for (const clientId of cursorKeys) {
+        if (!activeClientIds.has(clientId)) {
+          removeCursor(clientId);
         }
       }
     } catch (error) {
@@ -737,48 +789,46 @@ export function setupCursorTracking(workspace: any, ydoc: Y.Doc, provider: any, 
   // Set up awareness handler
   provider.awareness.on('change', awarenessChangeHandler);
   
+  // Update awareness with all current users immediately
+  console.log('Initial awareness update - current states:', provider.awareness.getStates().size);
+  awarenessChangeHandler(null); // Null changes will process all current users
+  
   // Set up workspace event listeners if we have access to the DOM
   if (typeof window !== 'undefined') {
-    workspace.getInjectionDiv().addEventListener('mousemove', onMouseMove);
-    
-    // Listen for block drag events
-    workspace.addChangeListener((e: any) => {
-      // Check if Blockly.Events and BLOCK_DRAG exist before accessing
-      if (Blockly?.Events?.BLOCK_DRAG && e.type === Blockly.Events.BLOCK_DRAG) {
-        if (e.isStart) {
+    const injectionDiv = workspace.getInjectionDiv();
+    if (injectionDiv) {
+      injectionDiv.addEventListener('mousemove', onMouseMove);
+      console.log('Added mousemove listener to injection div');
+      
+      // Listen for block drag events
+      workspace.addChangeListener((e: any) => {
+        if (e && e.type === 'dragStart') {
           onStartDrag(e);
-        } else {
+        } else if (e && e.type === 'dragStop') {
           onStopDrag(e);
         }
-      }
-    });
-  }
-  
-  // Add window resize handler to update cursor positions
-  const resizeHandler = () => {
-    cursors.forEach((_, clientId) => {
-      updateCursorPosition(clientId);
-    });
-  };
-  
-  if (typeof window !== 'undefined') {
-    window.addEventListener('resize', resizeHandler);
+      });
+    }
   }
   
   // Return cleanup function
   return () => {
-    // Remove all cursors
-    cursors.forEach((_, clientId) => {
+    // Clean up all cursors
+    const cursorKeys = Array.from(cursors.keys());
+    for (const clientId of cursorKeys) {
       removeCursor(clientId);
-    });
+    }
     
     // Remove event listeners
-    provider.awareness.off('change', awarenessChangeHandler);
-    
     if (typeof window !== 'undefined') {
-      workspace.getInjectionDiv().removeEventListener('mousemove', onMouseMove);
-      window.removeEventListener('resize', resizeHandler);
+      const injectionDiv = workspace.getInjectionDiv();
+      if (injectionDiv) {
+        injectionDiv.removeEventListener('mousemove', onMouseMove);
+      }
     }
+    
+    // Remove awareness handler
+    provider.awareness.off('change', awarenessChangeHandler);
   };
 }
 
@@ -873,21 +923,42 @@ export async function initCollaboration(
           console.log('WebSocket connection closed (no event details)');
         }
       });
+      
+      // Ensure provider is connected before continuing
+      if (!provider.wsconnected) {
+        console.log('Explicitly connecting WebSocket provider');
+        provider.connect();
+      }
     } catch (error) {
       console.error('Error creating WebSocket provider:', error);
     }
-
-    // Create user awareness
+    
+    // Create user awareness with explicit association to the provider
     const awareness = provider ? provider.awareness : new Awareness(ydoc);
     
-    // Set initial user state with color and name
+    // Set initial user state with color and name - always do this even if provider isn't available
     const userName = userIdentifier;
     const userColor = getRandomColor();
     
     awareness.setLocalState({
       name: userName,
       color: userColor,
+      // Initialize with current cursor position to make it visible immediately
+      cursor: { x: 0, y: 0 }
     });
+    
+    // Log awareness state for debugging
+    console.log('Local awareness state set:', {
+      name: userName,
+      color: userColor,
+      clientId: awareness.clientID
+    });
+    
+    // Explicitly sync awareness state if connected
+    if (provider && provider.wsconnected) {
+      console.log('Syncing awareness states');
+      provider.awareness.setLocalStateField('presence', { status: 'online' });
+    }
     
     // Return the document, provider, and connection status
     return {

@@ -107,6 +107,13 @@ BlocklyCollab is an enhanced version of Google's Blockly programming environment
     - Enhanced getUserRooms function to check for cache invalidation markers before using cached data
     - Added proper cleanup of cached state when creating new resources
     - Improved WebSocket connection handling with simplified room ID format
+- **2025-03-25**:
+  - Fixed critical WebSocket connection issues for real-time collaboration
+  - Enhanced cursor tracking functionality to properly display other users' cursors
+  - Improved awareness protocol for better user presence detection
+  - Added additional logging and debugging information for collaboration features
+  - Optimized cursor updates to reduce network traffic (position throttling)
+  - Enhanced error handling in WebSocket provider and cursor tracking functions
 
 ## Firebase Optimization
 - Implemented in-memory cache for room data with 5-minute expiry
