@@ -313,18 +313,34 @@ export function setupBlocklySync(workspace: any, ydoc: Y.Doc, options?: {blockly
   
   // Track local changes to avoid loops
   let isApplyingRemoteChanges = false;
+  let ignoreLocalEvents = false;
+  
+  // Helper to get normalized workspace coordinates regardless of screen size
+  const getNormalizedCoordinates = (block: any) => {
+    const xy = block.getRelativeToSurfaceXY();
+    
+    // We store the absolute workspace coordinates which are independent 
+    // of screen size and current viewport
+    return {
+      x: xy.x,
+      y: xy.y
+    };
+  };
   
   // Helper to serialize a block to a simple object
   const serializeBlock = (block: any) => {
     if (!block) return null;
     
     try {
+      // Get normalized block position
+      const position = getNormalizedCoordinates(block);
+      
       // Get basic block data
       const blockData: any = {
         id: block.id,
         type: block.type,
-        x: block.getRelativeToSurfaceXY().x,
-        y: block.getRelativeToSurfaceXY().y,
+        x: position.x,
+        y: position.y,
         fields: {},
         inputs: {},
         collapsed: block.isCollapsed(),
@@ -347,7 +363,7 @@ export function setupBlocklySync(workspace: any, ydoc: Y.Doc, options?: {blockly
         });
       }
       
-      // Get connections
+      // Handle connections
       if (block.previousConnection) {
         const targetBlock = block.previousConnection.targetBlock();
         if (targetBlock) {
@@ -393,91 +409,116 @@ export function setupBlocklySync(workspace: any, ydoc: Y.Doc, options?: {blockly
         block.render();
       }
       
-      // Set position
-      block.moveBy(blockData.x - block.getRelativeToSurfaceXY().x, 
-                  blockData.y - block.getRelativeToSurfaceXY().y);
+      // Get current position
+      const currentPosition = block.getRelativeToSurfaceXY();
+      
+      // Only move if position has actually changed
+      // This prevents blocks from jumping back and forth when edited from different screens
+      const distanceX = Math.abs(blockData.x - currentPosition.x);
+      const distanceY = Math.abs(blockData.y - currentPosition.y);
+      
+      if (distanceX > 1 || distanceY > 1) {
+        // Move by the difference between current and desired position
+        block.moveBy(
+          blockData.x - currentPosition.x, 
+          blockData.y - currentPosition.y
+        );
+      }
       
       // Set fields
       for (const fieldName in blockData.fields) {
         const field = block.getField(fieldName);
-        if (field && field.setValue) {
+        if (field && typeof field.setValue === 'function') {
           field.setValue(blockData.fields[fieldName]);
         }
       }
       
-      // Set state
-      if (blockData.collapsed) block.setCollapsed(true);
-      if (blockData.disabled) block.setDisabled(true);
-      block.setDeletable(blockData.deletable);
-      block.setMovable(blockData.movable);
-      block.setEditable(blockData.editable);
+      // Update block properties
+      if (blockData.collapsed !== undefined && typeof block.setCollapsed === 'function') {
+        block.setCollapsed(blockData.collapsed);
+      }
+      
+      if (blockData.disabled !== undefined) {
+        block.setDisabled(blockData.disabled);
+      }
+      
+      if (blockData.deletable !== undefined && typeof block.setDeletable === 'function') {
+        block.setDeletable(blockData.deletable);
+      }
+      
+      if (blockData.movable !== undefined && typeof block.setMovable === 'function') {
+        block.setMovable(blockData.movable);
+      }
+      
+      if (blockData.editable !== undefined && typeof block.setEditable === 'function') {
+        block.setEditable(blockData.editable);
+      }
       
       return block;
     } catch (error) {
-      console.error('Error deserializing block:', error);
+      console.error('Error deserializing block:', error, blockData);
       return null;
     }
   };
   
-  // Helper to connect blocks based on connection data
+  // Helper to connect blocks based on stored connection data
   const connectBlocks = () => {
-    const connectionData = sharedConnections.toJSON();
-    
-    for (const blockId in connectionData) {
-      const connections = connectionData[blockId];
-      const block = workspace.getBlockById(blockId);
-      
-      if (!block) continue;
-      
-      // Handle previous connection
-      if (connections.previous) {
-        const targetBlock = workspace.getBlockById(connections.previous);
-        if (targetBlock && block.previousConnection && targetBlock.nextConnection) {
-          block.previousConnection.connect(targetBlock.nextConnection);
-        }
-      }
-      
-      // Handle next connection
-      if (connections.next) {
-        const targetBlock = workspace.getBlockById(connections.next);
-        if (targetBlock && block.nextConnection && targetBlock.previousConnection) {
-          block.nextConnection.connect(targetBlock.previousConnection);
-        }
-      }
-      
-      // Handle input connections
-      for (const inputName in connections.inputs) {
-        const targetBlockId = connections.inputs[inputName];
-        const targetBlock = workspace.getBlockById(targetBlockId);
-        const input = block.getInput(inputName);
+    try {
+      sharedConnections.forEach((connections: any, blockId: string) => {
+        const block = workspace.getBlockById(blockId);
+        if (!block) return;
         
-        if (targetBlock && input && input.connection) {
-          const targetConnection = targetBlock.outputConnection || 
-                                  targetBlock.previousConnection;
-          if (targetConnection) {
-            input.connection.connect(targetConnection);
+        // Previous connection
+        if (connections.previous) {
+          const target = workspace.getBlockById(connections.previous);
+          if (target && block.previousConnection && target.nextConnection) {
+            if (!block.previousConnection.isConnected()) {
+              block.previousConnection.connect(target.nextConnection);
+            }
           }
         }
-      }
+        
+        // Next connection
+        if (connections.next) {
+          const target = workspace.getBlockById(connections.next);
+          if (target && block.nextConnection && target.previousConnection) {
+            if (!block.nextConnection.isConnected()) {
+              block.nextConnection.connect(target.previousConnection);
+            }
+          }
+        }
+        
+        // Input connections
+        if (connections.inputs) {
+          for (const inputName in connections.inputs) {
+            const targetId = connections.inputs[inputName];
+            const target = workspace.getBlockById(targetId);
+            const input = block.getInput(inputName);
+            
+            if (target && input && input.connection) {
+              if (!input.connection.isConnected()) {
+                input.connection.connect(target.outputConnection || target.previousConnection);
+              }
+            }
+          }
+        }
+      });
+    } catch (error) {
+      console.error('Error connecting blocks:', error);
     }
   };
   
   // Sync the entire workspace initially or when needed
   const syncFullWorkspace = () => {
     if (isApplyingRemoteChanges) return;
+    isApplyingRemoteChanges = true;
+    ignoreLocalEvents = true;
     
     try {
-      isApplyingRemoteChanges = true;
-      
-      // Clear shared data
-      sharedBlocks.clear();
-      sharedBlocksData.clear();
-      sharedConnections.clear();
-      
       // Get all blocks
       const blocks = workspace.getAllBlocks(false);
       
-      // First pass: serialize all blocks
+      // First pass: store block data
       blocks.forEach((block: any) => {
         const blockData = serializeBlock(block);
         if (blockData) {
@@ -515,6 +556,7 @@ export function setupBlocklySync(workspace: any, ydoc: Y.Doc, options?: {blockly
       // Store workspace state (viewport, etc.)
       const metrics = workspace.getMetrics();
       if (metrics) {
+        // Store viewport information in a normalized way
         sharedWorkspaceState.set('viewportLeft', metrics.viewLeft);
         sharedWorkspaceState.set('viewportTop', metrics.viewTop);
         sharedWorkspaceState.set('scale', workspace.scale);
@@ -525,19 +567,23 @@ export function setupBlocklySync(workspace: any, ydoc: Y.Doc, options?: {blockly
       console.error('Error syncing full workspace:', error);
     } finally {
       isApplyingRemoteChanges = false;
+      // Small delay before re-enabling event handling
+      setTimeout(() => {
+        ignoreLocalEvents = false;
+      }, 50);
     }
   };
   
   // Apply remote changes to the workspace
   const applyRemoteChanges = () => {
     if (isApplyingRemoteChanges) return;
+    isApplyingRemoteChanges = true;
     
     try {
-      isApplyingRemoteChanges = true;
-      
-      // Temporarily disable events
-      workspace.setResizesEnabled(false);
+      // Disable events temporarily
       Blockly.Events.disable();
+      ignoreLocalEvents = true;
+      workspace.setResizesEnabled(false);
       
       // Clear workspace
       workspace.clear();
@@ -575,6 +621,10 @@ export function setupBlocklySync(workspace: any, ydoc: Y.Doc, options?: {blockly
       workspace.setResizesEnabled(true);
       Blockly.Events.enable();
       isApplyingRemoteChanges = false;
+      // Small delay before re-enabling event handling
+      setTimeout(() => {
+        ignoreLocalEvents = false;
+      }, 50);
     }
   };
   
@@ -589,54 +639,76 @@ export function setupBlocklySync(workspace: any, ydoc: Y.Doc, options?: {blockly
   
   // Listen for changes to the workspace
   const changeListener = (event: any) => {
-    if (isApplyingRemoteChanges) return;
+    // Skip if we're applying remote changes or event is NULL
+    if (isApplyingRemoteChanges || ignoreLocalEvents || !event) return;
     
     try {
-      // Handle different types of events
+      // Handle different event types
       if (event.type === Blockly.Events.BLOCK_CREATE) {
+        // New block created
         const block = workspace.getBlockById(event.blockId);
         if (block) {
+          // Add to shared data
           const blockData = serializeBlock(block);
           if (blockData) {
             sharedBlocks.set(block.id, true);
             sharedBlocksData.set(block.id, blockData);
+            
+            // Add connection data
+            const connections = { inputs: {} };
+            sharedConnections.set(block.id, connections);
           }
         }
       } else if (event.type === Blockly.Events.BLOCK_DELETE) {
+        // Block deleted
         sharedBlocks.delete(event.blockId);
         sharedBlocksData.delete(event.blockId);
         sharedConnections.delete(event.blockId);
-      } else if (event.type === Blockly.Events.BLOCK_CHANGE || 
-                event.type === Blockly.Events.BLOCK_MOVE) {
+      } else if (event.type === Blockly.Events.BLOCK_CHANGE) {
+        // Block changed (field value, etc.)
         const block = workspace.getBlockById(event.blockId);
         if (block) {
           const blockData = serializeBlock(block);
           if (blockData) {
             sharedBlocksData.set(block.id, blockData);
-            
-            // Update connections
-            const connections: any = { inputs: {} };
-            
-            if (block.previousConnection && block.previousConnection.targetBlock()) {
-              connections.previous = block.previousConnection.targetBlock().id;
-            }
-            
-            if (block.nextConnection && block.nextConnection.targetBlock()) {
-              connections.next = block.nextConnection.targetBlock().id;
-            }
-            
-            if (block.inputList) {
-              block.inputList.forEach((input: any) => {
-                if (input.connection && input.connection.targetBlock()) {
-                  connections.inputs[input.name] = input.connection.targetBlock().id;
-                }
-              });
-            }
-            
-            sharedConnections.set(block.id, connections);
           }
         }
+      } else if (event.type === Blockly.Events.BLOCK_MOVE) {
+        // Block moved or connection changed
+        const block = workspace.getBlockById(event.blockId);
+        if (block) {
+          // Update block data (position)
+          const blockData = serializeBlock(block);
+          if (blockData) {
+            sharedBlocksData.set(block.id, blockData);
+          }
+          
+          // Update connections
+          const connections: any = { inputs: {} };
+          
+          // Previous connection
+          if (block.previousConnection && block.previousConnection.targetBlock()) {
+            connections.previous = block.previousConnection.targetBlock().id;
+          }
+          
+          // Next connection
+          if (block.nextConnection && block.nextConnection.targetBlock()) {
+            connections.next = block.nextConnection.targetBlock().id;
+          }
+          
+          // Input connections
+          if (block.inputList) {
+            block.inputList.forEach((input: any) => {
+              if (input.connection && input.connection.targetBlock()) {
+                connections.inputs[input.name] = input.connection.targetBlock().id;
+              }
+            });
+          }
+          
+          sharedConnections.set(block.id, connections);
+        }
       } else if (event.type === Blockly.Events.VIEWPORT_CHANGE) {
+        // Viewport changed (scroll, zoom)
         const metrics = workspace.getMetrics();
         if (metrics) {
           sharedWorkspaceState.set('viewportLeft', metrics.viewLeft);
@@ -649,32 +721,103 @@ export function setupBlocklySync(workspace: any, ydoc: Y.Doc, options?: {blockly
     }
   };
   
-  // Observe changes to shared data
-  const blocksObserver = (event: Y.YMapEvent<any>) => {
-    if (event.transaction.local) return;
-    applyRemoteChanges();
-  };
+  // Listen for workspace changes
+  workspace.addChangeListener(changeListener);
   
-  const blocksDataObserver = (event: Y.YMapEvent<any>) => {
-    if (event.transaction.local) return;
-    applyRemoteChanges();
-  };
-  
-  const connectionsObserver = (event: Y.YMapEvent<any>) => {
-    if (event.transaction.local) return;
-    applyRemoteChanges();
-  };
-  
-  const workspaceStateObserver = (event: Y.YMapEvent<any>) => {
-    if (event.transaction.local) return;
+  // Handle updates from other clients
+  const blocksObserver = (events: Y.YMapEvent<any>) => {
+    if (isApplyingRemoteChanges) return;
     
     try {
-      // Only update viewport if not editing
-      if (!Blockly.draggingConnections_) {
+      // Get changed keys
+      const keys = events.keysChanged;
+      if (keys.size === 0) return;
+      
+      // Check if block was added or removed
+      const addedBlocks = Array.from(keys).filter(id => sharedBlocks.has(id) && !workspace.getBlockById(id));
+      const removedBlocks = Array.from(keys).filter(id => !sharedBlocks.has(id) && workspace.getBlockById(id));
+      
+      // Handle case where many blocks changed at once (potential full update)
+      if (keys.size > 3) {
+        applyRemoteChanges();
+        return;
+      }
+      
+      // Handle removed blocks
+      removedBlocks.forEach(id => {
+        const block = workspace.getBlockById(id);
+        if (block) {
+          isApplyingRemoteChanges = true;
+          ignoreLocalEvents = true;
+          try {
+            block.dispose(false);
+          } finally {
+            isApplyingRemoteChanges = false;
+            ignoreLocalEvents = false;
+          }
+        }
+      });
+      
+      // Handle added blocks
+      if (addedBlocks.length > 0) {
+        // If we have new blocks, process a full update to ensure proper connections
+        applyRemoteChanges();
+      }
+    } catch (error) {
+      console.error('Error handling blocks updates:', error);
+    }
+  };
+  
+  // Observer for block data changes
+  const blocksDataObserver = (events: Y.YMapEvent<any>) => {
+    if (isApplyingRemoteChanges) return;
+    
+    try {
+      // Get changed keys
+      const keys = events.keysChanged;
+      if (keys.size === 0) return;
+      
+      // Process each changed block that already exists
+      isApplyingRemoteChanges = true;
+      ignoreLocalEvents = true;
+      
+      try {
+        Array.from(keys).forEach(id => {
+          const blockData = sharedBlocksData.get(id);
+          if (blockData) {
+            deserializeBlock(blockData);
+          }
+        });
+        
+        // Update connections after all blocks are updated
+        connectBlocks();
+      } finally {
+        isApplyingRemoteChanges = false;
+        // Small delay before re-enabling event handling
+        setTimeout(() => {
+          ignoreLocalEvents = false;
+        }, 50);
+      }
+    } catch (error) {
+      console.error('Error handling block data updates:', error);
+    }
+  };
+  
+  // Observer for workspace state changes
+  const workspaceStateObserver = (events: Y.YMapEvent<any>) => {
+    if (isApplyingRemoteChanges) return;
+    
+    try {
+      // Check if viewport changed
+      if (events.keysChanged.has('viewportLeft') || 
+          events.keysChanged.has('viewportTop') || 
+          events.keysChanged.has('scale')) {
+        
         const viewportLeft = sharedWorkspaceState.get('viewportLeft');
         const viewportTop = sharedWorkspaceState.get('viewportTop');
         const scale = sharedWorkspaceState.get('scale');
         
+        // Only update if values are valid
         if (viewportLeft !== undefined && viewportTop !== undefined) {
           workspace.scroll(viewportLeft, viewportTop);
         }
@@ -684,23 +827,23 @@ export function setupBlocklySync(workspace: any, ydoc: Y.Doc, options?: {blockly
         }
       }
     } catch (error) {
-      console.error('Error applying workspace state:', error);
+      console.error('Error handling workspace state updates:', error);
     }
   };
   
-  // Add observers and listeners
+  // Set up observers
   sharedBlocks.observe(blocksObserver);
   sharedBlocksData.observe(blocksDataObserver);
-  sharedConnections.observe(connectionsObserver);
   sharedWorkspaceState.observe(workspaceStateObserver);
-  workspace.addChangeListener(changeListener);
   
   // Return cleanup function
   return () => {
+    // Remove change listener
     workspace.removeChangeListener(changeListener);
+    
+    // Disconnect observers
     sharedBlocks.unobserve(blocksObserver);
     sharedBlocksData.unobserve(blocksDataObserver);
-    sharedConnections.unobserve(connectionsObserver);
     sharedWorkspaceState.unobserve(workspaceStateObserver);
   };
 }
