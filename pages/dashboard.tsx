@@ -6,7 +6,7 @@ import { getAuth, onAuthStateChanged, User } from 'firebase/auth';
 import { FaPlus, FaPuzzlePiece, FaUsers, FaExternalLinkAlt, FaUserCircle, FaTrash, FaEdit } from 'react-icons/fa';
 import { MdDashboard, MdFolder, MdGroup, MdSettings } from 'react-icons/md';
 import styles from '../styles/Dashboard.module.css';
-import { getUserRooms, createNewRoom, deleteRoom, clearAllRooms } from '../lib/collab';
+import { getUserRooms, createNewRoom, deleteRoom, clearAllRooms, cleanupOrphanedRoom } from '../lib/collab';
 import { getUserProjects, createProject, deleteProject, Project } from '../lib/projects';
 
 // For rooms tab
@@ -238,7 +238,17 @@ export default function Dashboard() {
   const handleDeleteRoom = async (roomId: string) => {
     try {
       setLoading(true);
-      await deleteRoom(roomId);
+      try {
+        // First attempt to delete normally
+        await deleteRoom(roomId);
+      } catch (error) {
+        console.error("Error deleting room, attempting cleanup of orphaned reference:", error);
+        
+        // If that fails and user exists, try to clean up orphaned reference
+        if (user) {
+          await cleanupOrphanedRoom(roomId, user.uid);
+        }
+      }
       
       // Reload rooms after deletion
       if (user) {

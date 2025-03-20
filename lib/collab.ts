@@ -1565,6 +1565,36 @@ export async function deleteRoom(roomId: string): Promise<void> {
   }
 }
 
+// Clean up an orphaned room reference (when the room document doesn't exist in Firebase)
+export async function cleanupOrphanedRoom(roomId: string, userId: string): Promise<void> {
+  if (!roomId || !userId) {
+    console.error('Room ID and User ID are required for cleanup');
+    throw new Error('Missing required parameters');
+  }
+
+  try {
+    console.log(`Cleaning up orphaned room reference: ${roomId} for user: ${userId}`);
+    
+    // Create a batch for delete operations
+    const batch = writeBatch(db);
+    
+    // Delete only the user's reference to the room
+    const userRoomRef = doc(db, 'users', userId, 'rooms', roomId);
+    batch.delete(userRoomRef);
+    
+    // Execute delete operation
+    await batch.commit();
+    
+    // Clear any cached user room data
+    userRoomsCache.delete(userId);
+    
+    console.log('Successfully cleaned up orphaned room reference');
+  } catch (error) {
+    console.error('Error cleaning up orphaned room:', error);
+    throw error;
+  }
+}
+
 // Clear all rooms (admin function)
 export async function clearAllRooms(): Promise<void> {
   try {
