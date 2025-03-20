@@ -42,18 +42,33 @@ export default function Home() {
             </button>
           </div>
           <div className={styles.heroImage || "heroImage"}>
-            {/* Placeholder for a hero image */}
-            <div className={styles.imagePlaceholder || "imagePlaceholder"} 
-                 style={{ 
-                    width: '500px', 
-                    height: '300px', 
-                    backgroundColor: '#e0e0e0',
-                    borderRadius: '8px',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center'
-                 }}>
-              <span>Blockly Workspace Preview</span>
+            <div className={styles.videoContainer || "videoContainer"}>
+              <div style={{ 
+                position: 'relative', 
+                width: '100%', 
+                height: '100%', 
+                backgroundColor: '#000', 
+                borderRadius: '8px',
+                overflow: 'hidden'
+              }}>
+                <video 
+                  className={styles.blocklyVideo || "blocklyVideo"}
+                  autoPlay 
+                  loop 
+                  muted 
+                  playsInline
+                  style={{
+                    width: '100%',
+                    height: '100%',
+                    objectFit: 'cover',
+                    transform: 'scale(1.05)',
+                    objectPosition: 'center'
+                  }}
+                >
+                  <source src="/Collab%20Blockly%20Preview.mp4" type="video/mp4" />
+                  Your browser does not support the video tag.
+                </video>
+              </div>
             </div>
           </div>
         </div>
