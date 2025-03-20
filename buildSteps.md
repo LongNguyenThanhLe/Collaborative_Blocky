@@ -144,6 +144,33 @@ This document tracks the progress of the BlocklyCollab application from start to
 - Updated WebSocket server to properly extract room IDs from URL paths
 - Added CORS support and improved error handling in WebSocket server
 
+## Current Progress: Enhanced Cursor Tracking and User Presence
+- Enhanced cursor tracking and user awareness features to improve real-time collaboration
+- Implemented more efficient cursor tracking algorithm to reduce latency
+- Added user presence indicators to show who's currently editing
+- Improved error handling for cursor tracking and user presence
+
+## Build Steps
+
+1. Set up a new Next.js project with TypeScript
+2. Install and configure Blockly
+3. Create a BlocklyWorkspace component
+4. Set up basic styles
+5. Configure Next.js for Blockly compatibility
+6. Create basic page layout
+7. Add Firebase configuration for authentication and data storage
+8. Implement user authentication
+9. Create room creation and joining functionality
+10. Implement basic Blockly workspace synchronization using Yjs
+11. Set up WebSocket provider for real-time collaboration
+12. Add cursor tracking for collaborative editing
+13. Implement user awareness features to show who's editing
+14. Configure Vercel deployment
+15. Fix WebSocket connection issues for improved reliability
+16. Enhance cursor tracking and user awareness
+17. Switch from XML-based synchronization to per-block synchronization for better real-time collaboration
+18. Fixed cursor visibility issues and added a dedicated room status indicator to show who is currently in the workspace
+
 ## March 19, 2025
 - Fixed the navigation flow so the back button from projects and rooms takes users to the dashboard with the appropriate tab selected
 - Enhanced the dashboard to support tab selection via URL parameters (dashboard?tab=projects or dashboard?tab=rooms)

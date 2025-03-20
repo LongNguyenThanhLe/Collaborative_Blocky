@@ -707,7 +707,7 @@ export function setupBlocklySync(workspace: any, ydoc: Y.Doc, options?: {blockly
 
 // Set up cursor tracking between users
 export function setupCursorTracking(workspace: any, ydoc: Y.Doc, provider: any, user: any) {
-  if (!provider || !workspace || !user) {
+  if (!workspace || !ydoc || !provider) {
     console.warn('Missing required parameters for cursor tracking');
     return () => {};
   }
@@ -717,15 +717,50 @@ export function setupCursorTracking(workspace: any, ydoc: Y.Doc, provider: any, 
   // Map to store cursor elements for each user
   const cursors = new Map();
   
+  // Create a room status element to show who's in the room
+  const createRoomStatusElement = () => {
+    const statusDiv = document.createElement('div');
+    statusDiv.id = 'blockly-room-status';
+    statusDiv.style.position = 'absolute';
+    statusDiv.style.top = '8px';
+    statusDiv.style.right = '8px';
+    statusDiv.style.backgroundColor = 'rgba(0, 0, 0, 0.7)';
+    statusDiv.style.color = 'white';
+    statusDiv.style.padding = '8px 12px';
+    statusDiv.style.borderRadius = '4px';
+    statusDiv.style.zIndex = '1000';
+    statusDiv.style.maxWidth = '300px';
+    statusDiv.style.boxShadow = '0 2px 5px rgba(0,0,0,0.2)';
+    statusDiv.style.fontSize = '12px';
+    statusDiv.innerHTML = '<div>Connected users:</div><div id="blockly-user-list"></div>';
+    
+    // Append to workspace container
+    const injectionDiv = workspace.getInjectionDiv();
+    if (injectionDiv) {
+      injectionDiv.appendChild(statusDiv);
+    } else {
+      document.body.appendChild(statusDiv);
+    }
+    
+    return statusDiv;
+  };
+  
+  // Create the status element
+  const statusElement = createRoomStatusElement();
+  
   // Set local user information if provided
   if (user && provider.awareness) {
     const localState = provider.awareness.getLocalState() || {};
-    console.log('Setting local awareness state for cursor tracking');
+    console.log('Setting local awareness state for cursor tracking', user);
+    
+    // Ensure we have a valid color
+    const userColor = user.color || getRandomColor();
+    
     provider.awareness.setLocalState({
       ...localState,
       name: user.name || localState.name || 'Anonymous',
       email: user.email || localState.email || '',
-      color: user.color || localState.color || getRandomColor(),
+      color: userColor,
       // Include cursor position if not already set
       cursor: localState.cursor || { x: 0, y: 0 }
     });
@@ -741,7 +776,7 @@ export function setupCursorTracking(workspace: any, ydoc: Y.Doc, provider: any, 
     // Don't create cursor for current user
     if (clientId === provider.awareness.clientID) return;
     
-    console.log(`Creating cursor for user ${state.name || 'Unknown'} (${clientId})`);
+    console.log(`Creating cursor for user ${state.name || 'Unknown'} (${clientId})`, state);
     
     // Remove existing cursor if any
     removeCursor(clientId);
@@ -756,28 +791,32 @@ export function setupCursorTracking(workspace: any, ydoc: Y.Doc, provider: any, 
       const cursorEl = document.createElement('div');
       cursorEl.className = 'blockly-cursor';
       cursorEl.style.position = 'absolute';
-      cursorEl.style.width = '8px';
-      cursorEl.style.height = '16px';
+      cursorEl.style.width = '12px';
+      cursorEl.style.height = '24px';
       cursorEl.style.backgroundColor = state.color || '#ff0000';
-      cursorEl.style.zIndex = '100';
+      cursorEl.style.zIndex = '1000';
       cursorEl.style.pointerEvents = 'none';
+      cursorEl.style.transition = 'transform 0.1s ease-out, left 0.1s ease-out, top 0.1s ease-out';
       
       // Make cursor more visible with a border
-      cursorEl.style.border = '1px solid white';
+      cursorEl.style.border = '2px solid white';
+      cursorEl.style.boxShadow = '0 0 4px rgba(0,0,0,0.5)';
       
       // Add user label
       const label = document.createElement('div');
       label.className = 'blockly-cursor-label';
       label.textContent = state.name || 'User';
       label.style.position = 'absolute';
-      label.style.bottom = '16px';
-      label.style.left = '0';
+      label.style.bottom = '24px';
+      label.style.left = '-4px';
       label.style.backgroundColor = state.color || '#ff0000';
       label.style.color = '#ffffff';
-      label.style.padding = '2px 4px';
-      label.style.borderRadius = '2px';
+      label.style.padding = '2px 8px';
+      label.style.borderRadius = '4px';
       label.style.fontSize = '12px';
+      label.style.fontWeight = 'bold';
       label.style.whiteSpace = 'nowrap';
+      label.style.boxShadow = '0 0 4px rgba(0,0,0,0.3)';
       
       cursorEl.appendChild(label);
       
@@ -867,8 +906,69 @@ export function setupCursorTracking(workspace: any, ydoc: Y.Doc, provider: any, 
     }
   };
   
-  // Set up mouse tracking
-  const onMouseMove = (e: any) => {
+  // Update the user list in the room status display
+  const updateUserList = () => {
+    const userListEl = document.getElementById('blockly-user-list');
+    if (!userListEl) return;
+    
+    // Clear current list
+    userListEl.innerHTML = '';
+    
+    // Get all users from awareness
+    const states = provider.awareness.getStates();
+    const users: any[] = [];
+    
+    // Convert map to array for easier processing
+    states.forEach((state: any, clientId: number) => {
+      if (state && state.name) {
+        users.push({
+          id: clientId,
+          name: state.name,
+          color: state.color || '#cccccc',
+          isCurrentUser: clientId === provider.awareness.clientID
+        });
+      }
+    });
+    
+    // Don't show anything if no users (shouldn't happen)
+    if (users.length === 0) {
+      userListEl.innerHTML = '<div>No users connected</div>';
+      return;
+    }
+    
+    // Create user elements
+    users.forEach(user => {
+      const userEl = document.createElement('div');
+      userEl.style.display = 'flex';
+      userEl.style.alignItems = 'center';
+      userEl.style.marginTop = '4px';
+      
+      const colorDot = document.createElement('span');
+      colorDot.style.display = 'inline-block';
+      colorDot.style.width = '10px';
+      colorDot.style.height = '10px';
+      colorDot.style.borderRadius = '50%';
+      colorDot.style.backgroundColor = user.color;
+      colorDot.style.marginRight = '6px';
+      
+      const nameSpan = document.createElement('span');
+      nameSpan.textContent = user.name + (user.isCurrentUser ? ' (you)' : '');
+      nameSpan.style.fontWeight = user.isCurrentUser ? 'bold' : 'normal';
+      
+      userEl.appendChild(colorDot);
+      userEl.appendChild(nameSpan);
+      userListEl.appendChild(userEl);
+    });
+    
+    // Update the count
+    const countEl = statusElement.querySelector('div:first-child');
+    if (countEl) {
+      countEl.textContent = `Connected users (${users.length}):`;
+    }
+  };
+  
+  // Throttled mouse move handler to reduce network traffic
+  const mouseMoveThrottled = throttle((e: any) => {
     try {
       // Only track if we have a valid workspace and provider
       if (!workspace || !provider.awareness || !provider.wsconnected) {
@@ -910,151 +1010,127 @@ export function setupCursorTracking(workspace: any, ydoc: Y.Doc, provider: any, 
         const scale = workspace.scale || 1;
         const viewMetrics = workspace.getMetrics && workspace.getMetrics();
         
+        // Calculate workspace coordinates
+        const scrollLeft = viewMetrics ? viewMetrics.viewLeft : 0;
+        const scrollTop = viewMetrics ? viewMetrics.viewTop : 0;
+        
         workspacePosition = {
-          x: (mouseX - rect.left) / scale + (viewMetrics ? viewMetrics.viewLeft / scale : 0),
-          y: (mouseY - rect.top) / scale + (viewMetrics ? viewMetrics.viewTop / scale : 0)
+          x: (mouseX - rect.left) / scale + scrollLeft,
+          y: (mouseY - rect.top) / scale + scrollTop
         };
       }
       
-      // Update local user state with the cursor position
-      const localState = provider.awareness.getLocalState() || {};
-      
-      // Only update if position has changed significantly (throttle updates)
-      const prevCursor = localState.cursor || { x: 0, y: 0 };
-      const dx = prevCursor.x - workspacePosition.x;
-      const dy = prevCursor.y - workspacePosition.y;
-      const distance = Math.sqrt(dx * dx + dy * dy);
-      
-      // Only update if moved more than 2 pixels (to reduce network traffic)
-      if (distance > 2) {
+      if (workspacePosition) {
+        // Update awareness with new cursor position
+        const currentState = provider.awareness.getLocalState() || {};
         provider.awareness.setLocalState({
-          ...localState,
-          cursor: workspacePosition
-        });
-      }
-    } catch (error) {
-      console.error('Error in mouse move handler:', error);
-    }
-  };
-  
-  // Update dragging state
-  const onStartDrag = (e: any) => {
-    const localState = provider.awareness.getLocalState();
-    if (localState) {
-      provider.awareness.setLocalState({
-        ...localState,
-        draggingBlock: true
-      });
-    }
-  };
-  
-  const onStopDrag = (e: any) => {
-    const localState = provider.awareness.getLocalState();
-    if (localState) {
-      provider.awareness.setLocalState({
-        ...localState,
-        draggingBlock: false
-      });
-    }
-  };
-  
-  // Handle awareness changes to update cursors
-  const awarenessChangeHandler = (changes: any) => {
-    try {
-      console.log('Awareness change detected');
-      
-      // First update existing cursors or create new ones
-      const states = provider.awareness.getStates();
-      
-      // Process the states
-      if (states && typeof states.forEach === 'function') {
-        states.forEach((state: any, clientId: number) => {
-          // Skip the current user
-          if (clientId === provider.awareness.clientID) return;
-          
-          // Check if this user should have a cursor
-          if (state && state.cursor) {
-            // Either create a new cursor or update an existing one
-            if (cursors.has(clientId)) {
-              // Update the cursor state
-              const cursor = cursors.get(clientId);
-              cursor.state = state;
-              updateCursorPosition(clientId);
-            } else {
-              // Create a new cursor
-              createCursor(clientId, state);
-            }
+          ...currentState,
+          cursor: {
+            x: workspacePosition.x,
+            y: workspacePosition.y
           }
         });
       }
-      
-      // Then handle users who disconnected or no longer have a cursor
-      // This ensures we handle the case where a user's state changes but they're still connected
-      
-      // First collect all clientIds that should have a cursor
-      const activeClientIds = new Set<number>();
-      states.forEach((state: any, clientId: number) => {
-        if (state && state.cursor) {
-          activeClientIds.add(clientId);
+    } catch (error) {
+      console.error('Error tracking mouse position:', error);
+    }
+  }, 50); // Throttle to 50ms (20 updates per second)
+  
+  // Set up mouse tracking
+  const onMouseMove = (e: any) => {
+    mouseMoveThrottled(e);
+  };
+  
+  // Add mouse move listener to workspace
+  const injectionDiv = workspace.getInjectionDiv();
+  if (injectionDiv) {
+    injectionDiv.addEventListener('mousemove', onMouseMove);
+  } else {
+    console.warn('No injection div found for mouse tracking');
+  }
+  
+  // Handle awareness changes (cursors, user info)
+  const awarenessChangeHandler = (changes: { added: number[]; updated: number[]; removed: number[]; }) => {
+    console.log('Awareness change detected:', changes);
+    
+    try {
+      // Handle new or updated users
+      [...changes.added, ...changes.updated].forEach(clientId => {
+        const state = provider.awareness.getStates().get(clientId);
+        if (state) {
+          createCursor(clientId, state);
         }
       });
       
-      // Then remove cursors for clients that are no longer active
-      // Convert to array first to avoid iteration issues with Map.keys()
-      const cursorKeys = Array.from(cursors.keys());
-      for (const clientId of cursorKeys) {
-        if (!activeClientIds.has(clientId)) {
-          removeCursor(clientId);
-        }
-      }
+      // Handle removed users
+      changes.removed.forEach(clientId => {
+        removeCursor(clientId);
+      });
+      
+      // Update the user list
+      updateUserList();
     } catch (error) {
-      console.error('Error in awareness change handler:', error);
+      console.error('Error handling awareness change:', error);
     }
   };
   
-  // Set up awareness handler
+  // Subscribe to awareness changes
   provider.awareness.on('change', awarenessChangeHandler);
   
-  // Update awareness with all current users immediately
-  console.log('Initial awareness update - current states:', provider.awareness.getStates().size);
-  awarenessChangeHandler(null); // Null changes will process all current users
-  
-  // Set up workspace event listeners if we have access to the DOM
-  if (typeof window !== 'undefined') {
-    const injectionDiv = workspace.getInjectionDiv();
-    if (injectionDiv) {
-      injectionDiv.addEventListener('mousemove', onMouseMove);
-      console.log('Added mousemove listener to injection div');
-      
-      // Listen for block drag events
-      workspace.addChangeListener((e: any) => {
-        if (e && e.type === 'dragStart') {
-          onStartDrag(e);
-        } else if (e && e.type === 'dragStop') {
-          onStopDrag(e);
-        }
-      });
+  // Initialize cursors for existing users
+  provider.awareness.getStates().forEach((state: any, clientId: number) => {
+    if (clientId !== provider.awareness.clientID) {
+      createCursor(clientId, state);
     }
+  });
+  
+  // Initial user list update
+  updateUserList();
+  
+  // Log connection status changes
+  const connectionStatusHandler = (connected: boolean) => {
+    console.log('WebSocket connection status changed:', connected ? 'connected' : 'disconnected');
+    
+    // Update connection status in UI
+    if (statusElement) {
+      statusElement.style.backgroundColor = connected 
+        ? 'rgba(0, 128, 0, 0.7)' 
+        : 'rgba(255, 0, 0, 0.7)';
+    }
+    
+    // Refresh user list when connection is established
+    if (connected) {
+      updateUserList();
+    }
+  };
+  
+  // Listen for connection status changes
+  if (provider.on) {
+    provider.on('status', connectionStatusHandler);
   }
   
   // Return cleanup function
   return () => {
-    // Clean up all cursors
-    const cursorKeys = Array.from(cursors.keys());
-    for (const clientId of cursorKeys) {
-      removeCursor(clientId);
-    }
+    // Clean up elements
+    cursors.forEach((cursor, clientId) => {
+      if (cursor.element) cursor.element.remove();
+    });
     
-    // Remove event listeners
-    if (typeof window !== 'undefined') {
-      const injectionDiv = workspace.getInjectionDiv();
-      if (injectionDiv) {
-        injectionDiv.removeEventListener('mousemove', onMouseMove);
-      }
+    // Remove status element
+    if (statusElement) statusElement.remove();
+    
+    // Remove listeners
+    if (injectionDiv) {
+      injectionDiv.removeEventListener('mousemove', onMouseMove);
     }
     
     // Remove awareness handler
     provider.awareness.off('change', awarenessChangeHandler);
+    
+    // Remove connection status handler
+    if (provider.off) {
+      provider.off('status', connectionStatusHandler);
+    }
   };
 }
 
