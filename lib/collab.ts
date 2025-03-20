@@ -821,7 +821,7 @@ export async function initCollaboration(
     if (typeof window !== 'undefined') {
       const isProduction = process.env.NODE_ENV === 'production';
       websocketUrl = isProduction 
-        ? 'wss://blockly-collab-server.onrender.com' 
+        ? 'wss://blockly-websocket-server.onrender.com' 
         : 'ws://localhost:1234';
       
       console.log(`Using WebSocket URL: ${websocketUrl}`);
@@ -836,20 +836,20 @@ export async function initCollaboration(
       ? roomId.substring(5) // Remove 'room_' prefix
       : roomId;
     
-    const finalWsUrl = new URL(websocketUrl);
-    finalWsUrl.pathname = `/yjs/${formattedRoomId}`;
-    
     let provider: WebsocketProvider | null = null;
     
     try {
       provider = new WebsocketProvider(
-        finalWsUrl.toString(),
-        'collaborative-blockly', // Room name becomes irrelevant here
+        websocketUrl, // Use base URL without any path
+        formattedRoomId, // Set the room ID directly as the room name
         ydoc,
         { connect: true }
       );
       
-      console.log('Custom WebSocket URL:', finalWsUrl.toString());
+      console.log('WebSocket connection attempt with room ID:', formattedRoomId);
+      
+      // Try to log the full URL that will be constructed
+      console.log('Expected WebSocket URL:', websocketUrl + '/' + formattedRoomId);
       
       // Add enhanced debugging
       provider.on('status', (event: { status: "connected" | "disconnected" | "connecting" }) => {

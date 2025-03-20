@@ -134,6 +134,11 @@ This document tracks the progress of the BlocklyCollab application from start to
 - Added Firestore rules for proper security enforcement
 - Created detailed documentation for development and deployment
 
+## Current Progress: WebSocket Server URL Fix
+- Fixed WebSocket connection issues by correcting domain name in client code
+- Updated WebSocket server to properly extract room IDs from URL paths
+- Added CORS support and improved error handling in WebSocket server
+
 ## March 19, 2025
 - Fixed the navigation flow so the back button from projects and rooms takes users to the dashboard with the appropriate tab selected
 - Enhanced the dashboard to support tab selection via URL parameters (dashboard?tab=projects or dashboard?tab=rooms)

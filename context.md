@@ -78,6 +78,9 @@ BlocklyCollab is an enhanced version of Google's Blockly programming environment
   - Added links between dashboard and projects page
   - Fixed type errors related to Timestamp objects
   - Deployed project to Vercel production environment
+  - Fixed WebSocket connection issues by updating the server URL from incorrect domain (blockly-collab-server) to the correct domain (blockly-websocket-server)
+  - Updated server-side code to properly handle room IDs from URL paths
+  - Added CORS support and improved error handling in WebSocket server
 - **2025-03-21**:
   - Enhanced user signup flow to collect additional information (name and school)
   - Added updateUserProfile function to firebase.ts for proper profile management
