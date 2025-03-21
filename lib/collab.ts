@@ -670,7 +670,7 @@ export function setupBlocklySync(workspace: any, ydoc: Y.Doc, options?: {blockly
               const connections = { inputs: {} };
               sharedConnections.set(block.id, connections);
             }
-          }, 100);
+          }, 300); // Slightly longer delay to ensure stability
         }
       } else if (event.type === Blockly.Events.BLOCK_DELETE) {
         // Block deleted
@@ -686,10 +686,15 @@ export function setupBlocklySync(workspace: any, ydoc: Y.Doc, options?: {blockly
             return;
           }
           
-          const blockData = serializeBlock(block);
-          if (blockData) {
-            sharedBlocksData.set(block.id, blockData);
-          }
+          // Add a small delay for stability
+          setTimeout(() => {
+            if (!workspace.getBlockById(event.blockId)) return;
+            
+            const blockData = serializeBlock(block);
+            if (blockData) {
+              sharedBlocksData.set(block.id, blockData);
+            }
+          }, 200);
         }
       } else if (event.type === Blockly.Events.BLOCK_MOVE) {
         // Block moved or connection changed
@@ -700,7 +705,7 @@ export function setupBlocklySync(workspace: any, ydoc: Y.Doc, options?: {blockly
             return;
           }
           
-          // Add a small delay to avoid synchronizing blocks that are still being moved
+          // Add a delay to avoid synchronizing blocks that are still being moved
           // This ensures we only synchronize the final position after the drag operation
           setTimeout(() => {
             if (!workspace.getBlockById(event.blockId)) return; // Block may have been deleted
@@ -734,30 +739,16 @@ export function setupBlocklySync(workspace: any, ydoc: Y.Doc, options?: {blockly
             }
             
             sharedConnections.set(block.id, connections);
-          }, 100);
+          }, 300); // Longer delay for move events
         }
       } else if (event.type === Blockly.Events.VIEWPORT_CHANGE) {
         // Viewport changed (scroll, zoom)
         // Skip synchronizing viewport changes from local user
         // This prevents the view from jumping when multiple users are viewing different areas
         // Each user should control their own view independently
-        
-        // Previous implementation that was causing the glitching:
-        // const viewportLeft = sharedWorkspaceState.get('viewportLeft');
-        // const viewportTop = sharedWorkspaceState.get('viewportTop');
-        // const scale = sharedWorkspaceState.get('scale');
-        
-        // // Only update if values are valid
-        // if (viewportLeft !== undefined && viewportTop !== undefined) {
-        //   workspace.scroll(viewportLeft, viewportTop);
-        // }
-        
-        // if (scale !== undefined && typeof workspace.setScale === 'function') {
-        //   workspace.setScale(scale);
-        // }
       }
     } catch (error) {
-      console.error('Error handling workspace change:', error);
+      console.error('Error in change listener:', error);
     }
   };
   

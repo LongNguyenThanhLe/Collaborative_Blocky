@@ -191,7 +191,8 @@ This document tracks the progress of the BlocklyCollab application from start to
 - Improved overall stability of the collaborative editing experience
 - Disabled viewport synchronization to prevent workspace view jumping when users pan or zoom
 - Enhanced workspace navigation so each user can now control their own view independently
-- Improved cursor tracking to correctly use workspace coordinates with proper coordinate transformations
-- Added better fallback methods for coordinate conversion to ensure cursors always appear in the correct position
-- Fixed ghost blocks issue by preventing temporary blocks from being synchronized during drag operations
-- Added short delays to block synchronization to only share blocks after drag operations are complete
+- Fixed ghost blocks issue by adding delays to the sync process (300ms for create/move, 200ms for changes)
+- Prevented temporary blocks from being synchronized during drag operations
+- Added better error handling to protect against sync failures
+- Optimized block synchronization with improved timing to ensure only final positions are shared
+- Disabled viewport synchronization to allow independent user control of workspace view

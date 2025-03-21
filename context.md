@@ -86,6 +86,9 @@ BlocklyCollab is an enhanced version of Google's Blockly programming environment
   - Added updateUserProfile function to firebase.ts for proper profile management
   - Implemented comprehensive caching system in Firebase utility to reduce quota usage
   - Created an improved landing page with better feature descriptions and cleaner UI
+  - Fixed ghost blocks synchronization issue during drag operations without animations
+  - Added delay timing for synchronization to prevent temporary blocks from being shared
+  - Improved reliability of collaborative workspace with optimized block updates
   - Optimized Firebase reads and writes in collab.ts with advanced caching techniques
   - Implemented batch writes for related Firestore operations to improve performance
   - Added throttling and debouncing with lodash to minimize Firebase operations
