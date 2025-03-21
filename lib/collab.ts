@@ -558,9 +558,9 @@ export function setupBlocklySync(workspace: any, ydoc: Y.Doc, options?: {blockly
       const metrics = workspace.getMetrics();
       if (metrics) {
         // Store viewport information in a normalized way
-        sharedWorkspaceState.set('viewportLeft', metrics.viewLeft);
-        sharedWorkspaceState.set('viewportTop', metrics.viewTop);
-        sharedWorkspaceState.set('scale', workspace.scale);
+        // sharedWorkspaceState.set('viewportLeft', metrics.viewLeft);
+        // sharedWorkspaceState.set('viewportTop', metrics.viewTop);
+        // sharedWorkspaceState.set('scale', workspace.scale);
       }
       
       console.log('Synchronized full workspace with', blocks.length, 'blocks');
@@ -602,17 +602,17 @@ export function setupBlocklySync(workspace: any, ydoc: Y.Doc, options?: {blockly
       connectBlocks();
       
       // Apply workspace state
-      const viewportLeft = sharedWorkspaceState.get('viewportLeft');
-      const viewportTop = sharedWorkspaceState.get('viewportTop');
-      const scale = sharedWorkspaceState.get('scale');
+      // const viewportLeft = sharedWorkspaceState.get('viewportLeft');
+      // const viewportTop = sharedWorkspaceState.get('viewportTop');
+      // const scale = sharedWorkspaceState.get('scale');
       
-      if (viewportLeft !== undefined && viewportTop !== undefined) {
-        workspace.scroll(viewportLeft, viewportTop);
-      }
+      // if (viewportLeft !== undefined && viewportTop !== undefined) {
+      //   workspace.scroll(viewportLeft, viewportTop);
+      // }
       
-      if (scale !== undefined && typeof workspace.setScale === 'function') {
-        workspace.setScale(scale);
-      }
+      // if (scale !== undefined && typeof workspace.setScale === 'function') {
+      //   workspace.setScale(scale);
+      // }
       
       console.log('Applied remote changes with', blockIds.length, 'blocks');
     } catch (error) {
@@ -710,12 +710,10 @@ export function setupBlocklySync(workspace: any, ydoc: Y.Doc, options?: {blockly
         }
       } else if (event.type === Blockly.Events.VIEWPORT_CHANGE) {
         // Viewport changed (scroll, zoom)
-        const metrics = workspace.getMetrics();
-        if (metrics) {
-          sharedWorkspaceState.set('viewportLeft', metrics.viewLeft);
-          sharedWorkspaceState.set('viewportTop', metrics.viewTop);
-          sharedWorkspaceState.set('scale', workspace.scale);
-        }
+        // Skip synchronizing viewport changes from local user
+        // This prevents the view from jumping when multiple users are viewing different areas
+        // Each user should control their own view independently
+        // Viewport synchronization is disabled for better user experience
       }
     } catch (error) {
       console.error('Error handling workspace change:', error);
@@ -814,18 +812,22 @@ export function setupBlocklySync(workspace: any, ydoc: Y.Doc, options?: {blockly
           events.keysChanged.has('viewportTop') || 
           events.keysChanged.has('scale')) {
         
-        const viewportLeft = sharedWorkspaceState.get('viewportLeft');
-        const viewportTop = sharedWorkspaceState.get('viewportTop');
-        const scale = sharedWorkspaceState.get('scale');
+        // Viewport synchronization is disabled to prevent jumping views
+        // Each user can navigate their workspace independently
         
-        // Only update if values are valid
-        if (viewportLeft !== undefined && viewportTop !== undefined) {
-          workspace.scroll(viewportLeft, viewportTop);
-        }
+        // Previous implementation that was causing the glitching:
+        // const viewportLeft = sharedWorkspaceState.get('viewportLeft');
+        // const viewportTop = sharedWorkspaceState.get('viewportTop');
+        // const scale = sharedWorkspaceState.get('scale');
         
-        if (scale !== undefined && typeof workspace.setScale === 'function') {
-          workspace.setScale(scale);
-        }
+        // // Only update if values are valid
+        // if (viewportLeft !== undefined && viewportTop !== undefined) {
+        //   workspace.scroll(viewportLeft, viewportTop);
+        // }
+        
+        // if (scale !== undefined && typeof workspace.setScale === 'function') {
+        //   workspace.setScale(scale);
+        // }
       }
     } catch (error) {
       console.error('Error handling workspace state updates:', error);
