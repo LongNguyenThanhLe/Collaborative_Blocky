@@ -184,3 +184,8 @@ This document tracks the progress of the BlocklyCollab application from start to
 - Enhanced the dashboard to support tab selection via URL parameters (dashboard?tab=projects or dashboard?tab=rooms)
 - Improved workspace navigation with consistent "Back to Dashboard" buttons that return to the correct tab
 - Removed references to the standalone projects page to ensure consistent navigation through the dashboard
+
+## March 21, 2025
+- Fixed block glitching issues by increasing position update thresholds from 1px to 5px to prevent unnecessary micro-adjustments
+- Increased synchronization timeouts from 50ms to 200ms to reduce update frequency and smooth block rendering
+- Improved overall stability of the collaborative editing experience

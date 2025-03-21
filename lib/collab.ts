@@ -417,7 +417,8 @@ export function setupBlocklySync(workspace: any, ydoc: Y.Doc, options?: {blockly
       const distanceX = Math.abs(blockData.x - currentPosition.x);
       const distanceY = Math.abs(blockData.y - currentPosition.y);
       
-      if (distanceX > 1 || distanceY > 1) {
+      // Increase movement threshold to prevent micro-adjustments
+      if (distanceX > 5 || distanceY > 5) {
         // Move by the difference between current and desired position
         block.moveBy(
           blockData.x - currentPosition.x, 
@@ -570,7 +571,7 @@ export function setupBlocklySync(workspace: any, ydoc: Y.Doc, options?: {blockly
       // Small delay before re-enabling event handling
       setTimeout(() => {
         ignoreLocalEvents = false;
-      }, 50);
+      }, 200);
     }
   };
   
@@ -624,7 +625,7 @@ export function setupBlocklySync(workspace: any, ydoc: Y.Doc, options?: {blockly
       // Small delay before re-enabling event handling
       setTimeout(() => {
         ignoreLocalEvents = false;
-      }, 50);
+      }, 200);
     }
   };
   
@@ -796,7 +797,7 @@ export function setupBlocklySync(workspace: any, ydoc: Y.Doc, options?: {blockly
         // Small delay before re-enabling event handling
         setTimeout(() => {
           ignoreLocalEvents = false;
-        }, 50);
+        }, 200);
       }
     } catch (error) {
       console.error('Error handling block data updates:', error);
