@@ -193,3 +193,5 @@ This document tracks the progress of the BlocklyCollab application from start to
 - Enhanced workspace navigation so each user can now control their own view independently
 - Improved cursor tracking to correctly use workspace coordinates with proper coordinate transformations
 - Added better fallback methods for coordinate conversion to ensure cursors always appear in the correct position
+- Fixed ghost blocks issue by preventing temporary blocks from being synchronized during drag operations
+- Added short delays to block synchronization to only share blocks after drag operations are complete
