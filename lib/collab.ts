@@ -1063,6 +1063,8 @@ export function setupCursorTracking(workspace: any, ydoc: Y.Doc, provider: any, 
         y: cursor.state.cursor.y
       };
       
+      console.log(`[Cursor ${clientId} - Received] Workspace Coords: (${workspaceCoordinate.x.toFixed(2)}, ${workspaceCoordinate.y.toFixed(2)})`);
+      
       // Check if we can translate workspace coordinates to screen coordinates
       if (workspace && typeof workspace.workspaceToPixels === 'function') {
         try {
@@ -1072,7 +1074,12 @@ export function setupCursorTracking(workspace: any, ydoc: Y.Doc, provider: any, 
           if (screenCoordinates && cursor.element) {
             // Adjust position to align the tip of the cursor with the actual position
             cursor.element.style.left = `${screenCoordinates.x - 3}px`;
-            cursor.element.style.top = `${screenCoordinates.y - 3}px`;
+            
+            // Apply a fixed offset correction to adjust for the consistent y-offset seen in logs
+            const yOffset = -60; // Correction to align cursors properly based on log analysis
+            cursor.element.style.top = `${screenCoordinates.y - 3 + yOffset}px`;
+            
+            console.log(`[Cursor ${clientId} - Direct] Calculated Screen Coords: (${screenCoordinates.x.toFixed(2)}, ${screenCoordinates.y.toFixed(2)}), Applied: left=${cursor.element.style.left}, top=${cursor.element.style.top}`);
           }
         } catch (error) {
           console.warn('Error converting coordinates:', error);
@@ -1100,7 +1107,10 @@ export function setupCursorTracking(workspace: any, ydoc: Y.Doc, provider: any, 
           // 2. Multiply by scale to account for zoom level
           // 3. Add injection div's position to position cursor correctly in page
           const screenX = (workspaceCoordinate.x - offsetX) * scale + rect.left;
-          const screenY = (workspaceCoordinate.y - offsetY) * scale + rect.top;
+          
+          // Apply a fixed offset correction of -60 to match the SVG transformation, based on log analysis
+          const yOffset = -60;
+          const screenY = (workspaceCoordinate.y - offsetY) * scale + rect.top + yOffset;
           
           console.log(`[Cursor ${clientId} - Fallback] Calculated Screen Coords: (${screenX.toFixed(2)}, ${screenY.toFixed(2)}) from Workspace: (${workspaceCoordinate.x.toFixed(2)}, ${workspaceCoordinate.y.toFixed(2)})`);
 
