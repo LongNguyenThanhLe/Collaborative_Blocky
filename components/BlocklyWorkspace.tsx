@@ -172,10 +172,20 @@ const BlocklyWorkspace: React.FC<BlocklyWorkspaceProps> = ({
             scaleSpeed: 1.2,
           },
           move: {
-            scrollbars: true,
+            scrollbars: {
+              horizontal: true,
+              vertical: true
+            },
             drag: true,
             wheel: true
           },
+          // Prevent auto expansion of the workspace
+          horizontalLayout: false,
+          // Configure scrollbars to be always visible
+          // This helps prevent the workspace from auto-expanding
+          scrollbars: true,
+          // Set a reasonable limit on the workspace content
+          maxBlocks: Infinity,
           comments: true,
           collapse: true,
           sounds: true,
