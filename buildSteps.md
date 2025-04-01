@@ -64,6 +64,17 @@ This document tracks the progress of the BlocklyCollab application from start to
 - Improved workspace layout with better visual hierarchy
 - Enhanced connection status indicators with clear visual feedback
 
+## Current Progress: Completely Redesigned Cursor Tracking
+- Changed cursor implementation from screen-positioned elements to SVG elements embedded in the Blockly workspace
+- Cursors now properly stay anchored to workspace coordinates rather than screen coordinates
+- Implemented directional indicators for out-of-view cursors that appear at the viewport edge
+- Added click-to-navigate functionality to jump to other users' cursors when they're out of view
+- Cursors now properly scale, rotate, and move with the workspace viewing transformations
+- Fixed cursor position discrepancies between different clients
+- Enhanced error handling and logging for cursor positioning
+- Added proper cleanup for cursor elements and event listeners
+- Cursors now behave like Blockly blocks - they stay in place during panning and zooming
+
 ## Current Progress: Fixed Deployment Build Errors
 - Implemented missing setupBlocklySync function in collab.ts
 - Added setupCursorTracking function for inter-user awareness

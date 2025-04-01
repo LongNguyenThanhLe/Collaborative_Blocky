@@ -136,6 +136,17 @@ BlocklyCollab is an enhanced version of Google's Blockly programming environment
     - Added block property synchronization (collapsed state, disabled state, etc.)
     - Added room status indicators showing currently connected users
     - Fixed cursor tracking to work with the normalized coordinate system
+- **2025-03-31**:
+  - Completely redesigned cursor tracking system:
+    - Changed from absolute screen-positioned cursors to SVG-embedded cursors within the Blockly workspace
+    - Cursors now stay anchored to specific workspace coordinates rather than screen coordinates
+    - When a user's cursor moves out of the current viewport, an indicator appears at the edge of the screen
+    - Added click-to-navigate functionality to out-of-view cursor indicators
+    - Implemented proper scaling and scrolling behavior consistent with Blockly blocks
+    - Cursors now behave like workspace elements rather than floating UI elements
+    - Added visual arrows that point to off-screen cursors with click-to-navigate
+    - Improved cleanup handling for all cursor-related elements and event listeners
+  - Enhanced error handling and expanded logging for debugging collaboration issues
 
 ## Room Management
 
@@ -220,4 +231,3 @@ The application is deployed on Vercel with custom domain configuration. Firebase
 3. Enable self-paced integration into collaborative workflows
 4. Reduce cognitive load during social interactions
 5. Build confidence through structured collaborative experiences
-
