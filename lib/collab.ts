@@ -701,6 +701,7 @@ export function setupBlocklySync(workspace: any, ydoc: Y.Doc, options?: {blockly
         const block = workspace.getBlockById(event.blockId);
         if (block) {
           // Skip temporary blocks, shadow blocks, or blocks that are in the middle of being dragged
+          // This ensures we only synchronize the final position after the drag operation
           if (block.isInFlyout || block.isShadow() || block.isDragging_ || block.isTemporary) {
             return;
           }
@@ -746,6 +747,20 @@ export function setupBlocklySync(workspace: any, ydoc: Y.Doc, options?: {blockly
         // Skip synchronizing viewport changes from local user
         // This prevents the view from jumping when multiple users are viewing different areas
         // Each user should control their own view independently
+        
+        // Previous implementation that was causing the glitching:
+        // const viewportLeft = sharedWorkspaceState.get('viewportLeft');
+        // const viewportTop = sharedWorkspaceState.get('viewportTop');
+        // const scale = sharedWorkspaceState.get('scale');
+        
+        // // Only update if values are valid
+        // if (viewportLeft !== undefined && viewportTop !== undefined) {
+        //   workspace.scroll(viewportLeft, viewportTop);
+        // }
+        
+        // if (scale !== undefined && typeof workspace.setScale === 'function') {
+        //   workspace.setScale(scale);
+        // }
       }
     } catch (error) {
       console.error('Error in change listener:', error);
@@ -941,8 +956,8 @@ export function setupCursorTracking(workspace: any, ydoc: Y.Doc, provider: any, 
       name: user.name || localState.name || 'Anonymous',
       email: user.email || localState.email || '',
       color: userColor,
-      // Include cursor position if not already set
-      cursor: localState.cursor || { x: 0, y: 0 }
+      // Initialize with current cursor position to make it visible immediately
+      cursor: { x: 0, y: 0 }
     });
   }
   
@@ -1096,67 +1111,6 @@ export function setupCursorTracking(workspace: any, ydoc: Y.Doc, provider: any, 
     }
   };
   
-  // Update the user list in the room status display
-  const updateUserList = () => {
-    const userListEl = document.getElementById('blockly-user-list');
-    if (!userListEl) return;
-    
-    // Clear current list
-    userListEl.innerHTML = '';
-    
-    // Get all users from awareness
-    const states = provider.awareness.getStates();
-    const users: any[] = [];
-    
-    // Convert map to array for easier processing
-    states.forEach((state: any, clientId: number) => {
-      if (state && state.name) {
-        users.push({
-          id: clientId,
-          name: state.name,
-          color: state.color || '#cccccc',
-          isCurrentUser: clientId === provider.awareness.clientID
-        });
-      }
-    });
-    
-    // Don't show anything if no users (shouldn't happen)
-    if (users.length === 0) {
-      userListEl.innerHTML = '<div>No users connected</div>';
-      return;
-    }
-    
-    // Create user elements
-    users.forEach(user => {
-      const userEl = document.createElement('div');
-      userEl.style.display = 'flex';
-      userEl.style.alignItems = 'center';
-      userEl.style.marginTop = '4px';
-      
-      const colorDot = document.createElement('span');
-      colorDot.style.display = 'inline-block';
-      colorDot.style.width = '10px';
-      colorDot.style.height = '10px';
-      colorDot.style.borderRadius = '50%';
-      colorDot.style.backgroundColor = user.color;
-      colorDot.style.marginRight = '6px';
-      
-      const nameSpan = document.createElement('span');
-      nameSpan.textContent = user.name + (user.isCurrentUser ? ' (you)' : '');
-      nameSpan.style.fontWeight = user.isCurrentUser ? 'bold' : 'normal';
-      
-      userEl.appendChild(colorDot);
-      userEl.appendChild(nameSpan);
-      userListEl.appendChild(userEl);
-    });
-    
-    // Update the count
-    const countEl = statusElement.querySelector('div:first-child');
-    if (countEl) {
-      countEl.textContent = `Connected users (${users.length}):`;
-    }
-  };
-  
   // Throttled mouse move handler to reduce network traffic
   const mouseMoveThrottled = throttle((e: any) => {
     try {
@@ -1220,6 +1174,10 @@ export function setupCursorTracking(workspace: any, ydoc: Y.Doc, provider: any, 
       }
       
       if (workspacePosition) {
+        // Remove any fractional parts to ensure consistent positions across clients
+        workspacePosition.x = Math.round(workspacePosition.x);
+        workspacePosition.y = Math.round(workspacePosition.y);
+        
         // Update awareness with new cursor position in workspace coordinates
         const currentState = provider.awareness.getLocalState() || {};
         provider.awareness.setLocalState({
@@ -1247,6 +1205,67 @@ export function setupCursorTracking(workspace: any, ydoc: Y.Doc, provider: any, 
   } else {
     console.warn('No injection div found for mouse tracking');
   }
+  
+  // Update the user list in the room status display
+  const updateUserList = () => {
+    const userListEl = document.getElementById('blockly-user-list');
+    if (!userListEl) return;
+    
+    // Clear current list
+    userListEl.innerHTML = '';
+    
+    // Get all users from awareness
+    const states = provider.awareness.getStates();
+    const users: any[] = [];
+    
+    // Convert map to array for easier processing
+    states.forEach((state: any, clientId: number) => {
+      if (state && state.name) {
+        users.push({
+          id: clientId,
+          name: state.name,
+          color: state.color || '#cccccc',
+          isCurrentUser: clientId === provider.awareness.clientID
+        });
+      }
+    });
+    
+    // Don't show anything if no users (shouldn't happen)
+    if (users.length === 0) {
+      userListEl.innerHTML = '<div>No users connected</div>';
+      return;
+    }
+    
+    // Create user elements
+    users.forEach(user => {
+      const userEl = document.createElement('div');
+      userEl.style.display = 'flex';
+      userEl.style.alignItems = 'center';
+      userEl.style.marginTop = '4px';
+      
+      const colorDot = document.createElement('span');
+      colorDot.style.display = 'inline-block';
+      colorDot.style.width = '10px';
+      colorDot.style.height = '10px';
+      colorDot.style.borderRadius = '50%';
+      colorDot.style.backgroundColor = user.color;
+      colorDot.style.marginRight = '6px';
+      
+      const nameSpan = document.createElement('span');
+      nameSpan.textContent = user.name + (user.isCurrentUser ? ' (you)' : '');
+      nameSpan.style.fontWeight = user.isCurrentUser ? 'bold' : 'normal';
+      
+      userEl.appendChild(colorDot);
+      userEl.appendChild(nameSpan);
+      userListEl.appendChild(userEl);
+    });
+    
+    // Update the count
+    const countEl = statusElement.querySelector('div:first-child');
+    if (countEl) {
+      countEl.textContent = `Connected users (${users.length}):`;
+    }
+  };
   
   // Handle awareness changes (cursors, user info)
   const awarenessChangeHandler = (changes: { added: number[]; updated: number[]; removed: number[]; }) => {
@@ -1285,7 +1304,7 @@ export function setupCursorTracking(workspace: any, ydoc: Y.Doc, provider: any, 
   
   // Initial user list update
   updateUserList();
-  
+
   // Log connection status changes
   const connectionStatusHandler = (connected: boolean) => {
     console.log('WebSocket connection status changed:', connected ? 'connected' : 'disconnected');
