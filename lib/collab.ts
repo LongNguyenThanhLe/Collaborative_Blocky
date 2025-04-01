@@ -1094,7 +1094,6 @@ export function setupCursorTracking(workspace: any, ydoc: Y.Doc, provider: any, 
     provider.awareness.setLocalState({
       ...localState,
       name: user.name || localState.name || 'Anonymous',
-      email: user.email || localState.email || '',
       color: userColor,
       // Initialize with current cursor position to make it visible immediately
       cursor: { x: 0, y: 0 }
@@ -1313,69 +1312,32 @@ export function setupCursorTracking(workspace: any, ydoc: Y.Doc, provider: any, 
         return;
       }
       
-      // For DOM element cursors, continue with the original logic
-      // Check if we can translate workspace coordinates to screen coordinates
-      if (workspace && typeof workspace.workspaceToPixels === 'function') {
-        try {
-          // Convert workspace coordinates to screen coordinates using Blockly's built-in method
-          const screenCoordinates = workspace.workspaceToPixels(workspaceCoordinate);
-          
-          // Set the cursor position directly
-          cursor.element.style.left = `${screenCoordinates.x}px`;
-          cursor.element.style.top = `${screenCoordinates.y}px`;
-          
-          // Update debug info after positioning
-          updateDebugInfo();
-          
-          // We'll no longer check visibility or create indicators as requested
-        } catch (error) {
-          console.error('Error converting workspace to screen coordinates:', error);
-        }
-      } else if (workspace && workspace.svgBlockCanvas_) {
-        try {
-          // If Blockly is using SVG for blocks, we can use SVG transforms
-          const CTM = workspace.svgBlockCanvas_.getCTM() || workspace.getCanvas().getCTM();
-          if (CTM) {
-            // Calculate screen coordinates using the SVG's transformation matrix
-            const scale = CTM.a; // The scale is usually in the 'a' component of the matrix
-            const screenX = (workspaceCoordinate.x * scale) + CTM.e;
-            const screenY = (workspaceCoordinate.y * scale) + CTM.f;
-            
-            // Set the cursor position
-            cursor.element.style.left = `${screenX}px`;
-            cursor.element.style.top = `${screenY}px`;
-            
-            // Update debug info after positioning
-            updateDebugInfo();
-          }
-        } catch (error) {
-          console.error('Error using SVG transform for cursor:', error);
-        }
-      } else {
-        try {
-          // Manual positioning as fallback
-          const injectionDivElement = workspace.getInjectionDiv();
-          const rect = injectionDivElement.getBoundingClientRect();
-          const scale = workspace.scale || 1;
-          
-          // Get current scroll offset
-          const viewMetrics = workspace.getMetrics && workspace.getMetrics();
-          const scrollLeft = viewMetrics ? viewMetrics.viewLeft || 0 : 0;
-          const scrollTop = viewMetrics ? viewMetrics.viewTop || 0 : 0;
-          
-          // Calculate screen position based on workspace coordinates
-          const cursorLeft = (workspaceCoordinate.x - scrollLeft) * scale;
-          const cursorTop = (workspaceCoordinate.y - scrollTop) * scale;
-          
-          // Set the cursor position
-          cursor.element.style.left = `${cursorLeft}px`;
-          cursor.element.style.top = `${cursorTop}px`;
-          
-          // Update debug info after positioning
-          updateDebugInfo();
-        } catch (error) {
-          console.error('Error positioning cursor using fallback method:', error);
-        }
+      // For DOM element cursors, convert workspace coordinates to screen coordinates
+      try {
+        // Get metrics for current viewport state
+        const viewMetrics = workspace.getMetrics();
+        const scale = workspace.scale || 1;
+        
+        // Get current scroll offsets
+        const scrollLeft = viewMetrics?.viewLeft || 0;
+        const scrollTop = viewMetrics?.viewTop || 0;
+        
+        // Convert workspace coordinates to screen coordinates
+        // First adjust for scroll, then apply scale
+        const screenX = (workspaceCoordinate.x - scrollLeft) * scale;
+        const screenY = (workspaceCoordinate.y - scrollTop) * scale;
+        
+        // Set the cursor position directly using the calculated screen coordinates
+        cursor.element.style.left = `${screenX}px`;
+        cursor.element.style.top = `${screenY}px`;
+        
+        // Ensure the cursor is visible
+        cursor.element.style.display = 'block';
+        
+        // Update debug info after positioning
+        updateDebugInfo();
+      } catch (error) {
+        console.error(`Failed to convert workspace coordinates for client ${clientId}:`, error);
       }
     } catch (error) {
       console.error('Error updating cursor position:', error);
@@ -1453,64 +1415,37 @@ export function setupCursorTracking(workspace: any, ydoc: Y.Doc, provider: any, 
 
       console.log(`[Cursor Send] Raw Screen Coords: (${mouseX}, ${mouseY})`);
       
-      // Create a point that we can transform
-      let workspacePosition;
-      
+      // Convert screen coordinates to workspace coordinates
       try {
-        // Try to use Blockly's built-in pixelsToWorkspace method if available
-        if (workspace && typeof workspace.pixelsToWorkspace === 'function') {
-          workspacePosition = workspace.pixelsToWorkspace({x: mouseX, y: mouseY});
-          console.log(`[Cursor Send - pixelsToWorkspace] Workspace Coords: (${workspacePosition.x.toFixed(2)}, ${workspacePosition.y.toFixed(2)})`);
-        } else {
-          // Try to create SVG point using Blockly's injectionDiv
-          const injectionDivElement = workspace.getInjectionDiv();
-          const svg = injectionDivElement.querySelector('svg');
-          
-          if (svg && typeof svg.createSVGPoint === 'function') {
-            // Use SVG API to get workspace coordinates
-            const svgPoint = svg.createSVGPoint();
-            svgPoint.x = mouseX;
-            svgPoint.y = mouseY;
-            
-            const matrix = svg.getScreenCTM()?.inverse();
-            if (matrix) {
-              workspacePosition = svgPoint.matrixTransform(matrix);
-              console.log(`[Cursor Send - SVG] Workspace Coords: (${workspacePosition.x.toFixed(2)}, ${workspacePosition.y.toFixed(2)})`);
-            } else {
-              throw new Error('Could not get SVG matrix');
-            }
-          } else {
-            throw new Error('SVG point creation not available');
-          }
-        }
-      } catch (error) {
-        // Fallback to manual coordinate conversion
-        const injectionDivElement = workspace.getInjectionDiv();
-        const rect = injectionDivElement.getBoundingClientRect();
+        // Get metrics for current viewport state
+        const viewMetrics = workspace.getMetrics();
         const scale = workspace.scale || 1;
-        const viewMetrics = workspace.getMetrics && workspace.getMetrics();
         
-        // Get current scroll/pan position
-        const scrollLeft = viewMetrics ? viewMetrics.viewLeft || 0 : 0;
-        const scrollTop = viewMetrics ? viewMetrics.viewTop || 0 : 0;
+        // Calculate position relative to injection div 
+        const injectionDiv = workspace.getInjectionDiv();
+        const rect = injectionDiv.getBoundingClientRect();
+        const relativeX = mouseX - rect.left;
+        const relativeY = mouseY - rect.top;
         
-        // Convert screen coordinates to workspace coordinates:
-        // 1. Calculate position relative to injection div
-        // 2. Divide by scale to account for zoom
-        // 3. Add scroll/pan offset to get the absolute workspace position
-        workspacePosition = {
-          x: (mouseX - rect.left) / scale + scrollLeft,
-          // Ensure consistent y-coordinate calculation by removing any browser-specific offsets
-          y: (mouseY - rect.top) / scale + scrollTop
+        // Calculate scroll offsets
+        const scrollLeft = viewMetrics?.viewLeft || 0;
+        const scrollTop = viewMetrics?.viewTop || 0;
+        
+        // Convert to workspace coordinates by:
+        // 1. Dividing by scale to account for zoom
+        // 2. Adding scroll offsets to get the absolute workspace position
+        const workspacePosition = {
+          x: (relativeX / scale) + scrollLeft,
+          y: (relativeY / scale) + scrollTop
         };
-        console.log(`[Cursor Send - Manual Fallback] Workspace Coords: (${workspacePosition.x.toFixed(2)}, ${workspacePosition.y.toFixed(2)})`);
-      }
-      
-      if (workspacePosition) {
+        
+        console.log(`[Cursor Send] Workspace Coords: (${workspacePosition.x.toFixed(2)}, ${workspacePosition.y.toFixed(2)})`);
+        
         // Update awareness with new cursor position in workspace coordinates
         const currentState = provider.awareness.getLocalState() || {};
         const currentCursor = currentState.cursor || { x: 0, y: 0 };
         
+        // Only send updates if position changed significantly to reduce network traffic
         if (!currentCursor || 
             Math.abs(currentCursor.x - workspacePosition.x) > 0.1 || 
             Math.abs(currentCursor.y - workspacePosition.y) > 0.1) {
@@ -1526,6 +1461,8 @@ export function setupCursorTracking(workspace: any, ydoc: Y.Doc, provider: any, 
           // Update debug info when local cursor position changes
           updateDebugInfo();
         }
+      } catch (error) {
+        console.error('Error converting screen to workspace coordinates:', error);
       }
     } catch (error) {
       console.error('Error tracking mouse position:', error);
