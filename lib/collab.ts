@@ -1139,14 +1139,22 @@ export function setupCursorTracking(workspace: any, ydoc: Y.Doc, provider: any, 
   const removeCursor = (clientId: number) => {
     const cursor = cursors.get(clientId);
     if (cursor && cursor.element) {
-      cursor.element.remove();
-      console.log(`Removed cursor for client ${clientId}`);
+      try {
+        cursor.element.remove();
+        console.log(`Removed cursor for client ${clientId}`);
+      } catch (e) {
+        console.error(`Error removing cursor element for client ${clientId}:`, e);
+      }
     }
     
     // Also remove any indicators
     const indicator = document.getElementById(`cursor-indicator-${clientId}`);
     if (indicator) {
-      indicator.remove();
+      try {
+        indicator.remove();
+      } catch (e) {
+        console.error(`Error removing indicator for client ${clientId}:`, e);
+      }
     }
     
     cursors.delete(clientId);
@@ -1482,13 +1490,18 @@ export function setupCursorTracking(workspace: any, ydoc: Y.Doc, provider: any, 
       if (workspacePosition) {
         // Update awareness with new cursor position in workspace coordinates
         const currentState = provider.awareness.getLocalState() || {};
-        provider.awareness.setLocalState({
-          ...currentState,
-          cursor: {
-            x: workspacePosition.x,
-            y: workspacePosition.y
-          }
-        });
+        const currentCursor = currentState.cursor || { x: 0, y: 0 };
+        if (!currentCursor || 
+            Math.abs(currentCursor.x - workspacePosition.x) > 0.1 || 
+            Math.abs(currentCursor.y - workspacePosition.y) > 0.1) {
+          provider.awareness.setLocalState({
+            ...currentState,
+            cursor: {
+              x: workspacePosition.x,
+              y: workspacePosition.y
+            }
+          });
+        }
       }
     } catch (error) {
       console.error('Error tracking mouse position:', error);
@@ -1574,14 +1587,32 @@ export function setupCursorTracking(workspace: any, ydoc: Y.Doc, provider: any, 
       // Handle new or updated users
       [...changes.added, ...changes.updated].forEach(clientId => {
         const state = provider.awareness.getStates().get(clientId);
-        if (state) {
-          createCursor(clientId, state);
+        // Only process users that aren't the current user and have cursor data
+        if (state && clientId !== provider.awareness.clientID && state.cursor) {
+          if (!cursors.has(clientId)) {
+            // If cursor doesn't exist yet, create it
+            console.log(`Creating new cursor for user ${state.name || 'Unknown'} (${clientId})`, state);
+            createCursor(clientId, state);
+          } else {
+            // If cursor already exists, just update its state and position
+            const cursor = cursors.get(clientId);
+            if (cursor) {
+              // Update state data but keep the DOM element the same
+              cursor.state = state;
+              // This will update the position without recreating the element
+              updateCursorPosition(clientId);
+            }
+          }
         }
       });
       
       // Handle removed users
       changes.removed.forEach(clientId => {
+        console.log(`Removing cursor for client ${clientId}`);
         removeCursor(clientId);
+        
+        // Update user list after removal
+        updateUserList();
       });
       
       // Update the user list
@@ -1744,7 +1775,7 @@ export async function initCollaboration(
         }
       });
       
-      provider.on('connection-close', (event: CloseEvent | null, provider: WebsocketProvider) => {
+      provider.on('connection-close', (event: CloseEvent | null) => {
         if (event) {
           console.log(`WebSocket connection closed. Code: ${event.code}, Reason: ${event.reason}`);
         } else {
