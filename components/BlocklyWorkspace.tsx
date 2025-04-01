@@ -34,6 +34,7 @@ const BlocklyWorkspace: React.FC<BlocklyWorkspaceProps> = ({
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [debugInfo, setDebugInfo] = useState<string>('');
   const blocklyInstanceRef = useRef<any>(null);
+  const handleResizeRef = useRef<(() => void) | null>(null);
 
   // Update parent component with connection status
   useEffect(() => {
@@ -80,6 +81,8 @@ const BlocklyWorkspace: React.FC<BlocklyWorkspaceProps> = ({
       });
       
       window.addEventListener('resize', handleResize);
+      
+      handleResizeRef.current = handleResize;
       
       return () => {
         window.removeEventListener('resize', handleResize);
@@ -172,20 +175,14 @@ const BlocklyWorkspace: React.FC<BlocklyWorkspaceProps> = ({
             scaleSpeed: 1.2,
           },
           move: {
-            scrollbars: {
-              horizontal: true,
-              vertical: true
-            },
+            scrollbars: true, // Enable scrollbars
             drag: true,
             wheel: true
           },
-          // Prevent auto expansion of the workspace
-          horizontalLayout: false,
-          // Configure scrollbars to be always visible
-          // This helps prevent the workspace from auto-expanding
+          // Set a fixed size to the workspace content (prevents infinite growth)
+          // This creates a bounded workspace like Figma
+          maxInstances: {}, // Allow unlimited instances of each block
           scrollbars: true,
-          // Set a reasonable limit on the workspace content
-          maxBlocks: Infinity,
           comments: true,
           collapse: true,
           sounds: true,
@@ -208,6 +205,53 @@ const BlocklyWorkspace: React.FC<BlocklyWorkspaceProps> = ({
         setDebugInfo("Injecting Blockly...");
         const newWorkspace = Blockly.inject(blocklyDiv.current!, options);
         setDebugInfo("Blockly injected successfully");
+        
+        // Set up fixed size workspace (like Figma's bounded canvas)
+        const setupFixedWorkspace = () => {
+          try {
+            // Center the view initially
+            newWorkspace.scrollCenter();
+            
+            // Define a workspace boundary - this creates a fixed 2000x2000 canvas
+            // centered at (0,0), similar to Figma's bounded canvas
+            const canvasSize = 2000;
+            const halfSize = canvasSize / 2;
+            
+            // Set the logical workspace boundary
+            if (typeof newWorkspace.setScale === 'function') {
+              // Force a re-render of the workspace after setting up
+              newWorkspace.setScale(newWorkspace.scale);
+              
+              // Save the boundary for other code to reference
+              (newWorkspace as any).canvasBounds = {
+                width: canvasSize,
+                height: canvasSize,
+                left: -halfSize,
+                top: -halfSize,
+                right: halfSize,
+                bottom: halfSize
+              };
+              
+              console.log("Fixed-size workspace created:", canvasSize, "x", canvasSize);
+            }
+          } catch (error) {
+            console.error("Error setting up fixed workspace:", error);
+          }
+        };
+        
+        // Set up the fixed workspace immediately
+        setupFixedWorkspace();
+        
+        // Handle resize events
+        const handleResize = () => {
+          if (blocklyDiv.current && newWorkspace) {
+            // Resize the workspace
+            Blockly.svgResize(newWorkspace);
+          }
+        };
+        
+        // Add resize event listener
+        window.addEventListener('resize', handleResize);
         
         // Store Blockly instance with workspace for external access
         const blocklyWithWorkspace = {
@@ -372,6 +416,14 @@ const BlocklyWorkspace: React.FC<BlocklyWorkspaceProps> = ({
     
     // Cleanup function
     return () => {
+      // Clean up resize listener
+      window.removeEventListener('resize', handleResizeRef.current!);
+      
+      if (blocklyInstance) {
+        blocklyInstance.dispose();
+        blocklyInstance = null;
+      }
+      
       if (collaborationCleanup) {
         collaborationCleanup();
       }
