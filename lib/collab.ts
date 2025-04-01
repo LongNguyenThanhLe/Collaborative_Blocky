@@ -1102,8 +1102,12 @@ export function setupCursorTracking(workspace: any, ydoc: Y.Doc, provider: any, 
           const screenX = (workspaceCoordinate.x - offsetX) * scale + rect.left;
           const screenY = (workspaceCoordinate.y - offsetY) * scale + rect.top;
           
+          console.log(`[Cursor ${clientId} - Fallback] Calculated Screen Coords: (${screenX.toFixed(2)}, ${screenY.toFixed(2)}) from Workspace: (${workspaceCoordinate.x.toFixed(2)}, ${workspaceCoordinate.y.toFixed(2)})`);
+
           cursor.element.style.left = `${screenX}px`;
           cursor.element.style.top = `${screenY}px`;
+
+          console.log(`[Cursor ${clientId} - Fallback] Applied Style: left=${cursor.element.style.left}, top=${cursor.element.style.top}`);
         }
       }
     } catch (error) {
@@ -1123,6 +1127,8 @@ export function setupCursorTracking(workspace: any, ydoc: Y.Doc, provider: any, 
       const mouseEvent = e.getBrowserEvent ? e.getBrowserEvent() : e;
       const mouseX = mouseEvent.clientX;
       const mouseY = mouseEvent.clientY;
+
+      console.log(`[Cursor Send] Raw Screen Coords: (${mouseX}, ${mouseY})`);
       
       // Create a point that we can transform
       let workspacePosition;
@@ -1131,6 +1137,7 @@ export function setupCursorTracking(workspace: any, ydoc: Y.Doc, provider: any, 
         // Try to use Blockly's built-in pixelsToWorkspace method if available
         if (workspace && typeof workspace.pixelsToWorkspace === 'function') {
           workspacePosition = workspace.pixelsToWorkspace({x: mouseX, y: mouseY});
+          console.log(`[Cursor Send - pixelsToWorkspace] Workspace Coords: (${workspacePosition.x.toFixed(2)}, ${workspacePosition.y.toFixed(2)})`);
         } else {
           // Try to create SVG point using Blockly's injectionDiv
           const injectionDiv = workspace.getInjectionDiv();
@@ -1145,6 +1152,7 @@ export function setupCursorTracking(workspace: any, ydoc: Y.Doc, provider: any, 
             const matrix = svg.getScreenCTM()?.inverse();
             if (matrix) {
               workspacePosition = svgPoint.matrixTransform(matrix);
+              console.log(`[Cursor Send - SVG] Workspace Coords: (${workspacePosition.x.toFixed(2)}, ${workspacePosition.y.toFixed(2)})`);
             } else {
               throw new Error('Could not get SVG matrix');
             }
@@ -1169,14 +1177,18 @@ export function setupCursorTracking(workspace: any, ydoc: Y.Doc, provider: any, 
         // 3. Add scroll/pan offset to get the absolute workspace position
         workspacePosition = {
           x: (mouseX - rect.left) / scale + scrollLeft,
+          // Ensure consistent y-coordinate calculation by removing any browser-specific offsets
           y: (mouseY - rect.top) / scale + scrollTop
         };
+        console.log(`[Cursor Send - Manual Fallback] Workspace Coords: (${workspacePosition.x.toFixed(2)}, ${workspacePosition.y.toFixed(2)})`);
       }
       
       if (workspacePosition) {
         // Remove any fractional parts to ensure consistent positions across clients
         workspacePosition.x = Math.round(workspacePosition.x);
         workspacePosition.y = Math.round(workspacePosition.y);
+
+        console.log(`[Cursor Send] Rounded Workspace Coords Sent: (${workspacePosition.x}, ${workspacePosition.y})`);
         
         // Update awareness with new cursor position in workspace coordinates
         const currentState = provider.awareness.getLocalState() || {};
