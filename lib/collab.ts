@@ -982,60 +982,69 @@ export function setupCursorTracking(workspace: any, ydoc: Y.Doc, provider: any, 
     }
     
     try {
-      // Create cursor element
-      const cursorEl = document.createElement('div');
-      cursorEl.className = 'blockly-cursor';
-      cursorEl.style.position = 'absolute';
-      cursorEl.style.width = '0';
-      cursorEl.style.height = '0';
-      cursorEl.style.zIndex = '1000';
-      cursorEl.style.pointerEvents = 'none';
-      cursorEl.style.transition = 'transform 0.1s ease-out, left 0.1s ease-out, top 0.1s ease-out';
-      
-      // Create cursor arrow shape using CSS borders
-      cursorEl.style.borderStyle = 'solid';
-      cursorEl.style.borderWidth = '0 0 16px 12px';
-      cursorEl.style.borderColor = 'transparent transparent transparent ' + (state.color || '#ff0000');
-      cursorEl.style.transform = 'rotate(-45deg)';
-      
-      // Add white outline to make it more visible
-      cursorEl.style.filter = 'drop-shadow(0 0 1px white) drop-shadow(0 0 2px rgba(0,0,0,0.5))';
-      
-      // Add user label
-      const label = document.createElement('div');
-      label.className = 'blockly-cursor-label';
-      label.textContent = state.name || 'User';
-      label.style.position = 'absolute';
-      label.style.bottom = '24px';
-      label.style.left = '-4px';
-      label.style.backgroundColor = state.color || '#ff0000';
-      label.style.color = '#ffffff';
-      label.style.padding = '2px 8px';
-      label.style.borderRadius = '4px';
-      label.style.fontSize = '12px';
-      label.style.fontWeight = 'bold';
-      label.style.whiteSpace = 'nowrap';
-      label.style.boxShadow = '0 0 4px rgba(0,0,0,0.3)';
-      
-      cursorEl.appendChild(label);
-      
-      // Find the appropriate container - try to use the injection div
+      // Get SVG from workspace for proper cursor attachment
       const injectionDiv = workspace.getInjectionDiv();
       if (!injectionDiv) {
         console.error('Could not find Blockly injection div');
         return;
       }
       
-      // Add to workspace
-      injectionDiv.appendChild(cursorEl);
+      const svg = injectionDiv.querySelector('svg.blocklyBlockCanvas');
+      if (!svg) {
+        console.error('Could not find Blockly SVG element');
+        return;
+      }
       
-      // Store cursor element
+      // Create cursor group element to be added to SVG
+      const cursorEl = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+      cursorEl.setAttribute('class', 'blockly-cursor');
+      cursorEl.setAttribute('data-client-id', clientId.toString());
+      
+      // Create cursor pointer triangle as an SVG path
+      const cursorPointer = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+      cursorPointer.setAttribute('d', 'M 0,0 L 12,16 L 0,12 Z');
+      cursorPointer.setAttribute('fill', state.color || '#ff0000');
+      cursorPointer.setAttribute('stroke', '#ffffff');
+      cursorPointer.setAttribute('stroke-width', '1');
+      
+      // Create user label as a foreign object to contain HTML
+      const labelFO = document.createElementNS('http://www.w3.org/2000/svg', 'foreignObject');
+      labelFO.setAttribute('width', '100');
+      labelFO.setAttribute('height', '30');
+      labelFO.setAttribute('x', '10');
+      labelFO.setAttribute('y', '-30');
+      
+      // Add HTML content for the label
+      const labelDiv = document.createElement('div');
+      labelDiv.textContent = state.name || 'User';
+      labelDiv.style.backgroundColor = state.color || '#ff0000';
+      labelDiv.style.color = '#ffffff';
+      labelDiv.style.padding = '2px 8px';
+      labelDiv.style.borderRadius = '4px';
+      labelDiv.style.fontSize = '12px';
+      labelDiv.style.fontWeight = 'bold';
+      labelDiv.style.whiteSpace = 'nowrap';
+      labelDiv.style.boxShadow = '0 0 4px rgba(0,0,0,0.3)';
+      
+      labelFO.appendChild(labelDiv);
+      
+      // Add pointer and label to cursor group
+      cursorEl.appendChild(cursorPointer);
+      cursorEl.appendChild(labelFO);
+      
+      // Position cursor at the initial workspace coordinates
+      updateCursorPosition(clientId, state.cursor);
+      
+      // Add cursor to SVG
+      svg.appendChild(cursorEl);
+      
+      // Store cursor element and state
       cursors.set(clientId, { element: cursorEl, state });
       
-      // Update cursor position based on state
-      updateCursorPosition(clientId);
-      
       console.log(`Cursor created for user ${state.name || 'Unknown'} (${clientId})`);
+      
+      // Check if cursor is in view and add indicator if needed
+      checkCursorVisibility(clientId);
     } catch (error) {
       console.error('Error creating cursor:', error);
     }
@@ -1048,81 +1057,141 @@ export function setupCursorTracking(workspace: any, ydoc: Y.Doc, provider: any, 
       cursor.element.remove();
       console.log(`Removed cursor for client ${clientId}`);
     }
+    
+    // Also remove any indicators
+    const indicator = document.getElementById(`cursor-indicator-${clientId}`);
+    if (indicator) {
+      indicator.remove();
+    }
+    
     cursors.delete(clientId);
   };
   
-  // Update cursor position based on workspace coordinates
-  const updateCursorPosition = (clientId: number) => {
+  // Update cursor position directly within the workspace
+  const updateCursorPosition = (clientId: number, position?: { x: number; y: number }) => {
+    const cursor = cursors.get(clientId);
+    if (!cursor || !cursor.element) return;
+    
+    const cursorPos = position || cursor.state.cursor;
+    if (!cursorPos) return;
+    
+    try {
+      console.log(`[Cursor ${clientId} - Updating] Workspace Position: (${cursorPos.x.toFixed(2)}, ${cursorPos.y.toFixed(2)})`);
+      
+      // Set transform attribute to position the cursor at the workspace coordinates
+      cursor.element.setAttribute('transform', `translate(${cursorPos.x}, ${cursorPos.y})`);
+      
+      // Update stored position
+      cursor.state.cursor = cursorPos;
+      
+      // Check if cursor is in view
+      checkCursorVisibility(clientId);
+    } catch (error) {
+      console.error('Error updating cursor position:', error);
+    }
+  };
+  
+  // Check if a cursor is visible in the current viewport
+  const checkCursorVisibility = (clientId: number) => {
     const cursor = cursors.get(clientId);
     if (!cursor || !cursor.state.cursor) return;
     
     try {
-      // Get cursor position from state - these are in workspace coordinates
-      const workspaceCoordinate = {
-        x: cursor.state.cursor.x,
-        y: cursor.state.cursor.y
-      };
+      const metrics = workspace.getMetrics && workspace.getMetrics();
+      if (!metrics) return;
       
-      console.log(`[Cursor ${clientId} - Received] Workspace Coords: (${workspaceCoordinate.x.toFixed(2)}, ${workspaceCoordinate.y.toFixed(2)})`);
+      const cursorPos = cursor.state.cursor;
       
-      // Check if we can translate workspace coordinates to screen coordinates
-      if (workspace && typeof workspace.workspaceToPixels === 'function') {
-        try {
-          // Convert workspace coordinates to screen coordinates using Blockly's built-in method
-          const screenCoordinates = workspace.workspaceToPixels(workspaceCoordinate);
+      // Check if cursor is within the current viewport
+      const isInView = (
+        cursorPos.x >= metrics.viewLeft &&
+        cursorPos.x <= metrics.viewLeft + metrics.viewWidth / workspace.scale &&
+        cursorPos.y >= metrics.viewTop &&
+        cursorPos.y <= metrics.viewTop + metrics.viewHeight / workspace.scale
+      );
+      
+      // Get or create indicator element
+      let indicator = document.getElementById(`cursor-indicator-${clientId}`);
+      
+      if (!isInView) {
+        if (!indicator) {
+          // Create indicator if it doesn't exist
+          indicator = document.createElement('div');
+          indicator.id = `cursor-indicator-${clientId}`;
+          indicator.className = 'cursor-indicator';
+          indicator.style.position = 'absolute';
+          indicator.style.width = '20px';
+          indicator.style.height = '20px';
+          indicator.style.backgroundColor = cursor.state.color || '#ff0000';
+          indicator.style.borderRadius = '50%';
+          indicator.style.color = '#fff';
+          indicator.style.display = 'flex';
+          indicator.style.alignItems = 'center';
+          indicator.style.justifyContent = 'center';
+          indicator.style.fontSize = '14px';
+          indicator.style.fontWeight = 'bold';
+          indicator.style.boxShadow = '0 0 5px rgba(0,0,0,0.3)';
+          indicator.style.cursor = 'pointer';
+          indicator.style.zIndex = '1000';
+          indicator.innerHTML = '<span>→</span>';
+          indicator.title = `Go to ${cursor.state.name || 'User'}'s cursor`;
           
-          if (screenCoordinates && cursor.element) {
-            // Adjust position to align the tip of the cursor with the actual position
-            cursor.element.style.left = `${screenCoordinates.x - 3}px`;
-            
-            // Apply a fixed offset correction to adjust for the consistent y-offset seen in logs
-            const yOffset = -60; // Correction to align cursors properly based on log analysis
-            cursor.element.style.top = `${screenCoordinates.y - 3 + yOffset}px`;
-            
-            console.log(`[Cursor ${clientId} - Direct] Calculated Screen Coords: (${screenCoordinates.x.toFixed(2)}, ${screenCoordinates.y.toFixed(2)}), Applied: left=${cursor.element.style.left}, top=${cursor.element.style.top}`);
+          // Add click handler to scroll to cursor
+          indicator.addEventListener('click', () => {
+            workspace.scrollCenter(cursorPos.x, cursorPos.y);
+          });
+          
+          // Add to workspace container
+          const injectionDiv = workspace.getInjectionDiv();
+          if (injectionDiv) {
+            injectionDiv.appendChild(indicator);
           }
-        } catch (error) {
-          console.warn('Error converting coordinates:', error);
-          // Fall through to the manual calculation below
         }
-      }
-      
-      // Fallback if workspaceToPixels is not available or failed
-      if (!cursor.element.style.left || !cursor.element.style.top) {
-        const injectionDiv = workspace.getInjectionDiv();
-        if (injectionDiv && cursor.element) {
-          // Get workspace scale and offset
-          const scale = workspace.scale || 1;
-          const metrics = workspace.getMetrics && workspace.getMetrics();
-          
-          // These are the current view offsets in workspace coordinates
-          const offsetX = metrics ? metrics.viewLeft || 0 : 0;
-          const offsetY = metrics ? metrics.viewTop || 0 : 0;
-          
-          // Get the injection div's dimensions to calculate relative position
-          const rect = injectionDiv.getBoundingClientRect();
-          
-          // Apply the correct transformation:
-          // 1. Subtract the current view offset to get position relative to current view
-          // 2. Multiply by scale to account for zoom level
-          // 3. Add injection div's position to position cursor correctly in page
-          const screenX = (workspaceCoordinate.x - offsetX) * scale + rect.left;
-          
-          // Apply a fixed offset correction of -60 to match the SVG transformation, based on log analysis
-          const yOffset = -60;
-          const screenY = (workspaceCoordinate.y - offsetY) * scale + rect.top + yOffset;
-          
-          console.log(`[Cursor ${clientId} - Fallback] Calculated Screen Coords: (${screenX.toFixed(2)}, ${screenY.toFixed(2)}) from Workspace: (${workspaceCoordinate.x.toFixed(2)}, ${workspaceCoordinate.y.toFixed(2)})`);
-
-          cursor.element.style.left = `${screenX}px`;
-          cursor.element.style.top = `${screenY}px`;
-
-          console.log(`[Cursor ${clientId} - Fallback] Applied Style: left=${cursor.element.style.left}, top=${cursor.element.style.top}`);
-        }
+        
+        // Position indicator at the edge of the viewport pointing toward cursor
+        positionIndicator(indicator, cursorPos, metrics);
+      } else if (indicator) {
+        // Remove indicator if cursor is in view
+        indicator.remove();
       }
     } catch (error) {
-      console.error('Error updating cursor position:', error);
+      console.error('Error checking cursor visibility:', error);
     }
+  };
+  
+  // Position the indicator at the edge of the viewport
+  const positionIndicator = (
+    indicator: HTMLElement, 
+    cursorPos: {x: number, y: number}, 
+    metrics: any
+  ) => {
+    const injectionDiv = workspace.getInjectionDiv();
+    if (!injectionDiv) return;
+    
+    const rect = injectionDiv.getBoundingClientRect();
+    const scale = workspace.scale || 1;
+    
+    // Calculate the angle from the center of the viewport to the cursor
+    const viewportCenterX = metrics.viewLeft + metrics.viewWidth / (2 * scale);
+    const viewportCenterY = metrics.viewTop + metrics.viewHeight / (2 * scale);
+    
+    const angle = Math.atan2(
+      cursorPos.y - viewportCenterY,
+      cursorPos.x - viewportCenterX
+    );
+    
+    // Calculate position along the edge of the viewport
+    const radius = Math.min(rect.width, rect.height) / 2 - 20;
+    const edgeX = rect.width / 2 + radius * Math.cos(angle);
+    const edgeY = rect.height / 2 + radius * Math.sin(angle);
+    
+    // Position indicator
+    indicator.style.left = `${edgeX}px`;
+    indicator.style.top = `${edgeY}px`;
+    
+    // Rotate arrow to point in the right direction
+    const arrowAngle = (angle * 180 / Math.PI) + 90;
+    indicator.style.transform = `rotate(${arrowAngle}deg)`;
   };
   
   // Throttled mouse move handler to reduce network traffic
@@ -1178,8 +1247,8 @@ export function setupCursorTracking(workspace: any, ydoc: Y.Doc, provider: any, 
         const viewMetrics = workspace.getMetrics && workspace.getMetrics();
         
         // Get current scroll/pan position
-        const scrollLeft = viewMetrics ? viewMetrics.viewLeft : 0;
-        const scrollTop = viewMetrics ? viewMetrics.viewTop : 0;
+        const scrollLeft = viewMetrics ? viewMetrics.viewLeft || 0 : 0;
+        const scrollTop = viewMetrics ? viewMetrics.viewTop || 0 : 0;
         
         // Convert screen coordinates to workspace coordinates:
         // 1. Calculate position relative to injection div
@@ -1191,6 +1260,8 @@ export function setupCursorTracking(workspace: any, ydoc: Y.Doc, provider: any, 
           y: (mouseY - rect.top) / scale + scrollTop
         };
         console.log(`[Cursor Send - Manual Fallback] Workspace Coords: (${workspacePosition.x.toFixed(2)}, ${workspacePosition.y.toFixed(2)})`);
+
+        console.log(`[Cursor Send] Precise Workspace Coords Sent: (${workspacePosition.x.toFixed(4)}, ${workspacePosition.y.toFixed(4)})`);
       }
       
       if (workspacePosition) {
@@ -1203,8 +1274,6 @@ export function setupCursorTracking(workspace: any, ydoc: Y.Doc, provider: any, 
             y: workspacePosition.y
           }
         });
-        
-        console.log(`[Cursor Send] Precise Workspace Coords Sent: (${workspacePosition.x.toFixed(4)}, ${workspacePosition.y.toFixed(4)})`);
       }
     } catch (error) {
       console.error('Error tracking mouse position:', error);
@@ -1220,6 +1289,24 @@ export function setupCursorTracking(workspace: any, ydoc: Y.Doc, provider: any, 
   const injectionDiv = workspace.getInjectionDiv();
   if (injectionDiv) {
     injectionDiv.addEventListener('mousemove', onMouseMove);
+    
+    // Add scroll event listener to update indicators when viewport changes
+    injectionDiv.addEventListener('scroll', () => {
+      // Update visibility for all cursors
+      cursors.forEach((cursor, clientId) => {
+        checkCursorVisibility(clientId);
+      });
+    });
+    
+    // Add scroll end listener to workspace to check cursor visibility
+    workspace.addChangeListener((e: any) => {
+      if (e.type === 'viewport_change') {
+        // Update visibility for all cursors after viewport changes
+        cursors.forEach((cursor, clientId) => {
+          checkCursorVisibility(clientId);
+        });
+      }
+    });
   } else {
     console.warn('No injection div found for mouse tracking');
   }
@@ -1347,26 +1434,41 @@ export function setupCursorTracking(workspace: any, ydoc: Y.Doc, provider: any, 
   
   // Return cleanup function
   return () => {
-    // Clean up elements
+    // Remove all cursors
     cursors.forEach((cursor, clientId) => {
-      if (cursor.element) cursor.element.remove();
+      removeCursor(clientId);
     });
     
-    // Remove status element
-    if (statusElement) statusElement.remove();
-    
-    // Remove listeners
+    // Remove mouse move event listener
     if (injectionDiv) {
       injectionDiv.removeEventListener('mousemove', onMouseMove);
     }
     
-    // Remove awareness handler
-    provider.awareness.off('change', awarenessChangeHandler);
-    
-    // Remove connection status handler
-    if (provider.off) {
-      provider.off('status', connectionStatusHandler);
+    // Remove scroll event listener
+    if (injectionDiv) {
+      const indicators = document.querySelectorAll('.cursor-indicator');
+      indicators.forEach(indicator => indicator.remove());
     }
+    
+    // Remove any scroll listeners added to the workspace
+    if (workspace.removeChangeListener) {
+      // We can't remove the specific listener we added, so we'll have to rely on the component unmount
+      // to clean up all change listeners via Blockly's own cleanup
+    }
+    
+    // Remove the user list element
+    const userListEl = document.getElementById('blockly-user-list');
+    if (userListEl) {
+      userListEl.remove();
+    }
+    
+    // Clean up the main status element
+    const statusElement = document.getElementById('blockly-room-status');
+    if (statusElement) {
+      statusElement.remove();
+    }
+    
+    console.log('Cursor tracking cleaned up');
   };
 }
 
