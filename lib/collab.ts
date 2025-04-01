@@ -1364,8 +1364,8 @@ export function setupCursorTracking(workspace: any, ydoc: Y.Doc, provider: any, 
           const scrollTop = viewMetrics ? viewMetrics.viewTop || 0 : 0;
           
           // Calculate screen position based on workspace coordinates
-          const cursorLeft = ((workspaceCoordinate.x - scrollLeft) * scale) + rect.left;
-          const cursorTop = ((workspaceCoordinate.y - scrollTop) * scale) + rect.top;
+          const cursorLeft = (workspaceCoordinate.x - scrollLeft) * scale;
+          const cursorTop = (workspaceCoordinate.y - scrollTop) * scale;
           
           // Set the cursor position
           cursor.element.style.left = `${cursorLeft}px`;
