@@ -1184,12 +1184,6 @@ export function setupCursorTracking(workspace: any, ydoc: Y.Doc, provider: any, 
       }
       
       if (workspacePosition) {
-        // Remove any fractional parts to ensure consistent positions across clients
-        workspacePosition.x = Math.round(workspacePosition.x);
-        workspacePosition.y = Math.round(workspacePosition.y);
-
-        console.log(`[Cursor Send] Rounded Workspace Coords Sent: (${workspacePosition.x}, ${workspacePosition.y})`);
-        
         // Update awareness with new cursor position in workspace coordinates
         const currentState = provider.awareness.getLocalState() || {};
         provider.awareness.setLocalState({
@@ -1199,6 +1193,8 @@ export function setupCursorTracking(workspace: any, ydoc: Y.Doc, provider: any, 
             y: workspacePosition.y
           }
         });
+        
+        console.log(`[Cursor Send] Precise Workspace Coords Sent: (${workspacePosition.x.toFixed(4)}, ${workspacePosition.y.toFixed(4)})`);
       }
     } catch (error) {
       console.error('Error tracking mouse position:', error);
