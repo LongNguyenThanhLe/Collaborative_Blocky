@@ -1,1 +1,9 @@
-{}
+{
+  "/_app": "pages/_app.js",
+  "/_error": "pages/_error.js",
+  "/_document": "pages/_document.js",
+  "/workspace": "pages/workspace.js",
+  "/dashboard": "pages/dashboard.js",
+  "/api/room-leave": "pages/api/room-leave.js",
+  "/login": "pages/login.js"
+}
