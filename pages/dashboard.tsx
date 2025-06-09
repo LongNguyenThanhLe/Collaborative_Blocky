@@ -2,7 +2,6 @@ import React, { useState, useEffect } from "react";
 import { useRouter } from "next/router";
 import Link from "next/link";
 import Image from "next/image";
-import { getAuth, onAuthStateChanged, User } from "firebase/auth";
 import {
   FaPlus,
   FaPuzzlePiece,
@@ -27,6 +26,7 @@ import {
   deleteProject,
   Project,
 } from "../lib/projects";
+import { useAuth } from "../contexts/AuthContext";
 
 // For rooms tab
 interface RoomCard {
@@ -39,7 +39,7 @@ interface RoomCard {
 
 export default function Dashboard() {
   const router = useRouter();
-  const [user, setUser] = useState<User | null>(null);
+  const { user, loading: authLoading, signOutUser } = useAuth();
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<"rooms" | "projects">("rooms");
 
@@ -83,16 +83,22 @@ export default function Dashboard() {
   // State for tracking if the user is an admin
   const [isAdmin, setIsAdmin] = useState(false);
 
-  // Check authentication and load user data
+  // Redirect to login if not authenticated
   useEffect(() => {
-    const auth = getAuth();
-    const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
-      if (currentUser) {
-        setUser(currentUser);
+    if (!authLoading && !user) {
+      router.push("/login");
+    }
+  }, [user, authLoading, router]);
+
+  // Load initial data when user is available
+  useEffect(() => {
+    if (user && !authLoading) {
+      const loadInitialData = async () => {
         try {
+          setLoading(true);
           // Load initial data for the active tab
           if (activeTab === "rooms") {
-            await loadRooms(currentUser.uid);
+            await loadRooms(user.uid);
           } else {
             await loadProjects();
           }
@@ -102,25 +108,11 @@ export default function Dashboard() {
         } finally {
           setLoading(false);
         }
-      } else {
-        // Redirect to login if not authenticated
-        router.push("/login");
-      }
-    });
+      };
 
-    return () => unsubscribe();
-  }, [router]);
-
-  // Load data when tab changes
-  useEffect(() => {
-    if (user) {
-      if (activeTab === "rooms") {
-        loadRooms(user.uid);
-      } else {
-        loadProjects();
-      }
+      loadInitialData();
     }
-  }, [activeTab, user]);
+  }, [user, authLoading, activeTab]);
 
   // Check if the user is an admin
   useEffect(() => {
@@ -319,7 +311,7 @@ export default function Dashboard() {
 
   // Format date for display
   const formatDate = (date: Date) => {
-    return date.toLocaleString("en-US", {
+    return date.toLocaleDateString("en-US", {
       month: "short",
       day: "numeric",
       year: "numeric",
@@ -327,6 +319,30 @@ export default function Dashboard() {
       minute: "2-digit",
     });
   };
+
+  // Show loading while checking authentication
+  if (authLoading) {
+    return (
+      <div className={styles.container}>
+        <div
+          style={{
+            display: "flex",
+            justifyContent: "center",
+            alignItems: "center",
+            height: "100vh",
+            fontSize: "18px",
+          }}
+        >
+          Loading...
+        </div>
+      </div>
+    );
+  }
+
+  // Don't render anything if user is not authenticated (redirect will happen in useEffect)
+  if (!user) {
+    return null;
+  }
 
   return (
     <div className={styles.container}>
@@ -363,12 +379,21 @@ export default function Dashboard() {
         </nav>
 
         <div className={styles.userInfo}>
-          <div className={styles.userAvatar}>
-            <FaUserCircle />
+          <div className={styles.userProfile}>
+            <div className={styles.userAvatar}>
+              <FaUserCircle />
+            </div>
+            <div className={styles.userName}>
+              {user?.displayName || user?.email || "User"}
+            </div>
           </div>
-          <div className={styles.userName}>
-            {user?.displayName || user?.email || "User"}
-          </div>
+          <button
+            className={styles.signOutButton}
+            onClick={signOutUser}
+            title="Sign Out"
+          >
+            Sign Out
+          </button>
         </div>
       </div>
 

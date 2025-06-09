@@ -78,6 +78,12 @@
   padding: 1rem 1.5rem;
   border-top: 1px solid rgba(255, 255, 255, 0.1);
   display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.userProfile {
+  display: flex;
   align-items: center;
 }
 
@@ -99,6 +105,25 @@
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  flex: 1;
+}
+
+.signOutButton {
+  background-color: rgba(255, 255, 255, 0.1);
+  color: rgba(255, 255, 255, 0.8);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  padding: 0.5rem 1rem;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 0.85rem;
+  transition: all 0.2s;
+  width: 100%;
+}
+
+.signOutButton:hover {
+  background-color: rgba(255, 255, 255, 0.2);
+  color: #fff;
+  border-color: rgba(255, 255, 255, 0.3);
 }
 
 /* Main content area */
@@ -302,7 +327,8 @@
 }
 
 /* Messages */
-.errorMessage, .successMessage {
+.errorMessage,
+.successMessage {
   padding: 1rem;
   border-radius: 6px;
   margin-bottom: 1.5rem;
@@ -323,7 +349,8 @@
   color: #2f855a;
 }
 
-.errorMessage button, .successMessage button {
+.errorMessage button,
+.successMessage button {
   background: none;
   border: none;
   font-size: 1.2rem;
@@ -372,7 +399,8 @@
   color: #4a5568;
 }
 
-.formGroup input, .formGroup textarea {
+.formGroup input,
+.formGroup textarea {
   width: 100%;
   padding: 0.75rem;
   border: 1px solid #e2e8f0;
@@ -381,7 +409,8 @@
   transition: border-color 0.2s;
 }
 
-.formGroup input:focus, .formGroup textarea:focus {
+.formGroup input:focus,
+.formGroup textarea:focus {
   outline: none;
   border-color: #3182ce;
   box-shadow: 0 0 0 3px rgba(49, 130, 206, 0.1);
